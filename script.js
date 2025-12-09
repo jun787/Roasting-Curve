@@ -6,9 +6,12 @@ const previewImg = document.getElementById('png-preview');
 const phaseTextEl = document.getElementById('phase-text');
 const dropTextEl = document.getElementById('drop-text');
 const downloadBtn = document.getElementById('download');
+const shareBtn = document.getElementById('share');
 
 let currentBlobUrl = null;
 let currentChartTitle = 'roast-curve';
+let lastPngBlob = null;
+let lastFileBaseName = 'roast-curve';
 
 ensureEnvironment();
 if (document.body) {
@@ -21,13 +24,16 @@ fileInput.addEventListener('change', async (event) => {
   if (!file) return;
 
   currentChartTitle = sanitizeTitle(file.name);
+  lastFileBaseName = currentChartTitle || 'roast-curve';
 
   updateStatus(`處理檔案：${file.name}…`);
   metaEl.textContent = '';
   phaseTextEl.textContent = '';
   dropTextEl.textContent = '';
   downloadBtn.disabled = true;
+  shareBtn.disabled = true;
   previewImg.removeAttribute('src');
+  lastPngBlob = null;
 
   try {
     const csvText = await readTextFromFile(file);
@@ -37,9 +43,11 @@ fileInput.addEventListener('change', async (event) => {
     phaseTextEl.textContent = prepared.phases.display;
     dropTextEl.textContent = prepared.phases.dropText;
 
-    const { url } = await renderPng(prepared, currentChartTitle);
+    const { blob, url } = await renderPng(prepared, currentChartTitle);
+    lastPngBlob = blob;
     setPreview(url);
     downloadBtn.disabled = false;
+    shareBtn.disabled = false;
     updateStatus('PNG 已產生，可預覽與下載。');
   } catch (error) {
     console.error(error);
@@ -48,11 +56,35 @@ fileInput.addEventListener('change', async (event) => {
 });
 
 downloadBtn.addEventListener('click', () => {
-  if (!currentBlobUrl) return;
-  const link = document.createElement('a');
-  link.href = currentBlobUrl;
-  link.download = `${currentChartTitle || 'roast-curve'}.png`;
-  link.click();
+  downloadCurrentPng();
+});
+
+shareBtn.addEventListener('click', async () => {
+  if (!currentBlobUrl || !lastPngBlob) return;
+  const fileName = `${lastFileBaseName || 'roast-curve'}.png`;
+  const canNativeShare =
+    typeof navigator !== 'undefined' &&
+    navigator.canShare &&
+    navigator.share &&
+    navigator.canShare({ files: [new File([lastPngBlob], fileName, { type: 'image/png' })] });
+
+  if (canNativeShare) {
+    try {
+      const file = new File([lastPngBlob], fileName, { type: 'image/png' });
+      await navigator.share({ title: lastFileBaseName, files: [file] });
+      updateStatus('已分享圖片。');
+      return;
+    } catch (err) {
+      if (err?.name === 'AbortError') {
+        updateStatus('已取消分享');
+        return;
+      }
+      console.error(err);
+      updateStatus('無法分享，改用下載。');
+    }
+  }
+
+  downloadCurrentPng();
 });
 
 function setPreview(url) {
@@ -67,6 +99,14 @@ function updateStatus(message) {
   statusEl.textContent = message;
 }
 
+function downloadCurrentPng() {
+  if (!currentBlobUrl) return;
+  const link = document.createElement('a');
+  link.href = currentBlobUrl;
+  link.download = `${lastFileBaseName || 'roast-curve'}.png`;
+  link.click();
+}
+
 function ensureEnvironment() {
   if (!statusEl) {
     throw new Error('找不到 #status 元素。');
@@ -78,6 +118,7 @@ function ensureEnvironment() {
   if (!chartCanvas) missing.push('找不到 #curve');
   if (!previewImg) missing.push('找不到 #png-preview');
   if (!downloadBtn) missing.push('找不到 #download 按鈕');
+  if (!shareBtn) missing.push('找不到 #share 按鈕');
   if (!window.Papa) missing.push('缺少 Papa Parse');
   if (!window.JSZip) missing.push('缺少 JSZip');
   const ctx = chartCanvas?.getContext?.('2d');
@@ -115,6 +156,19 @@ function sanitizeTitle(filename) {
   name = name.replace(/[_\-\s]*csv$/i, '');
   name = name.replace(/[_\-]+$/g, '').trim();
   return name || 'roast-curve';
+}
+
+function dataUrlToBlob(dataUrl) {
+  const parts = dataUrl.split(',');
+  const mimeMatch = parts[0].match(/:(.*?);/);
+  const mime = mimeMatch ? mimeMatch[1] : 'image/png';
+  const binary = atob(parts[1]);
+  const len = binary.length;
+  const array = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    array[i] = binary.charCodeAt(i);
+  }
+  return new Blob([array], { type: mime });
 }
 
 function parseCsv(csvText) {
@@ -639,8 +693,11 @@ async function renderPng({ samples, ror, rightMax, tempMax, events, phases, tota
   ctx.restore();
 
   const blob = await new Promise((resolve) => chartCanvas.toBlob(resolve, 'image/png'));
-  const url = blob ? URL.createObjectURL(blob) : chartCanvas.toDataURL('image/png');
-  return { blob, url };
+  if (blob) {
+    return { blob, url: URL.createObjectURL(blob) };
+  }
+  const dataUrl = chartCanvas.toDataURL('image/png');
+  return { blob: dataUrlToBlob(dataUrl), url: dataUrl };
 }
 
 function drawGrid(ctx, margin, width, height, tempMax, totalDuration, mapTempY, mapX) {
