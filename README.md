@@ -17,3 +17,4 @@
 - 會自動尋找壓縮檔中的第一個 `.csv` 檔並使用它。
 - 解析與繪圖均在本機瀏覽器中完成，使用 [JSZip](https://stuk.github.io/jszip/)、[PapaParse](https://www.papaparse.com/)、[Chart.js](https://www.chartjs.org/)。
 - 若缺少必要欄位或沒有數值資料，狀態區域會顯示錯誤訊息。
+
