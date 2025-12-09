@@ -403,6 +403,12 @@ function prepareSeries({ headers, rows, mapping: initialMapping, headerRowIndex,
   const tempMax = rightMax * 10;
 
   const events = extractEvents(sorted);
+  const tpEvent = detectTP(sorted);
+  const hasTp = events.some((e) => e.label === 'TP');
+  if (tpEvent && !hasTp) {
+    events.push(tpEvent);
+    events.sort((a, b) => a.t - b.t);
+  }
   const phases = buildPhases(sorted, events);
 
   return {
@@ -474,6 +480,37 @@ function computeRoR(samples) {
   }
 
   return ror;
+}
+
+function detectTP(samples) {
+  if (!samples.length) return null;
+  const startIdx = samples.findIndex((s) => Number.isFinite(s.t) && s.t >= 20);
+  let bestIdx = -1;
+  let bestBt = Infinity;
+  const searchFrom = startIdx === -1 ? 0 : startIdx;
+
+  for (let i = searchFrom; i < samples.length; i++) {
+    const { bt } = samples[i];
+    if (!Number.isFinite(bt)) continue;
+    if (bt < bestBt) {
+      bestBt = bt;
+      bestIdx = i;
+    }
+  }
+
+  if (bestIdx === -1 && searchFrom > 0) {
+    for (let i = 0; i < searchFrom; i++) {
+      const { bt } = samples[i];
+      if (!Number.isFinite(bt)) continue;
+      if (bt < bestBt) {
+        bestBt = bt;
+        bestIdx = i;
+      }
+    }
+  }
+
+  if (bestIdx === -1) return null;
+  return { idx: bestIdx, t: samples[bestIdx].t, bt: samples[bestIdx].bt, label: 'TP' };
 }
 
 function extractEvents(samples) {
@@ -591,7 +628,7 @@ async function renderPng({ samples, ror, rightMax, tempMax, events, phases, tota
   drawStepped(ctx, times, powerData, mapX, mapTempY, '#ef4444', [6, 4]);
   drawStepped(ctx, times, fanData, mapX, mapTempY, '#10b981', [4, 4]);
 
-  drawEvents(ctx, events, mapX, mapTempY);
+  drawEvents(ctx, events, mapX, mapTempY, margin, cssWidth, cssHeight);
   drawFooterText(ctx, cssWidth, cssHeight, margin, phases);
 
   ctx.save();
@@ -747,14 +784,14 @@ function drawStepped(ctx, times, values, mapX, mapY, color, dash) {
   ctx.restore();
 }
 
-function drawEvents(ctx, events, mapX, mapY) {
+function drawEvents(ctx, events, mapX, mapY, margin, width, height) {
   if (!events.length) return;
   ctx.save();
   ctx.fillStyle = '#f97316';
   ctx.strokeStyle = '#f97316';
   ctx.lineWidth = 1.5;
   ctx.font = '13px "Inter", system-ui, sans-serif';
-  ctx.textAlign = 'left';
+  ctx.textAlign = 'center';
   ctx.textBaseline = 'bottom';
   events.forEach((e) => {
     const x = mapX(e.t);
@@ -762,7 +799,22 @@ function drawEvents(ctx, events, mapX, mapY) {
     ctx.beginPath();
     ctx.arc(x, y, 4, 0, Math.PI * 2);
     ctx.fill();
-    strokeFillText(ctx, e.label, x + 6, y - 6, '#0f172a');
+
+    const labelText = `${formatTimeLabel(e.t)} ${e.label}`;
+    const metrics = ctx.measureText(labelText);
+    let textX = x;
+    const half = metrics.width / 2;
+    if (textX - half < margin.left) textX = margin.left + half;
+    if (textX + half > width - margin.right) textX = width - margin.right - half;
+
+    let textY = y - 10;
+    let baseline = 'bottom';
+    if (textY < margin.top + 5) {
+      textY = y + 14;
+      baseline = 'top';
+    }
+    ctx.textBaseline = baseline;
+    strokeFillText(ctx, labelText, textX, textY, '#0f172a');
   });
   ctx.restore();
 }
