@@ -15,6 +15,11 @@ if (document.body) {
   document.body.style.backgroundColor = '#ffffff';
 }
 
+ensureEnvironment();
+if (document.body) {
+  document.body.style.backgroundColor = '#ffffff';
+}
+
 fileInput.addEventListener('change', async (event) => {
   ensureEnvironment();
   const [file] = event.target.files || [];
