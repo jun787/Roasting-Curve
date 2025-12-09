@@ -87,8 +87,18 @@ function parseCsv(csvText) {
     throw new Error('CSV 中沒有資料。');
   }
 
-  const headers = rows[0].map((cell) => String(cell).trim());
-  const body = rows.slice(1);
+  const trimmedRows = rows.map((row) => row.map((cell) => String(cell).trim()));
+  for (let i = 0; i < Math.min(trimmedRows.length, 5); i++) {
+    const candidateHeaders = trimmedRows[i];
+    const mapping = buildMapping(candidateHeaders);
+    if (mapping.time !== undefined && mapping.bt !== undefined) {
+      const body = trimmedRows.slice(i + 1);
+      return { headers: candidateHeaders, rows: body };
+    }
+  }
+
+  const headers = trimmedRows[0];
+  const body = trimmedRows.slice(1);
   return { headers, rows: body };
 }
 
