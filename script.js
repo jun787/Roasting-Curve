@@ -9,7 +9,10 @@ const downloadBtn = document.getElementById('download');
 
 let currentBlobUrl = null;
 
+ensureEnvironment();
+
 fileInput.addEventListener('change', async (event) => {
+  ensureEnvironment();
   const [file] = event.target.files || [];
   if (!file) return;
 
@@ -47,7 +50,7 @@ downloadBtn.addEventListener('click', () => {
 });
 
 function setPreview(url) {
-  if (currentBlobUrl) {
+  if (currentBlobUrl && currentBlobUrl.startsWith('blob:')) {
     URL.revokeObjectURL(currentBlobUrl);
   }
   currentBlobUrl = url;
@@ -56,6 +59,29 @@ function setPreview(url) {
 
 function updateStatus(message) {
   statusEl.textContent = message;
+}
+
+function ensureEnvironment() {
+  if (!statusEl) {
+    throw new Error('找不到 #status 元素。');
+  }
+
+  const missing = [];
+  if (!fileInput) missing.push('找不到 #file-input');
+  if (!metaEl) missing.push('找不到 #meta');
+  if (!chartCanvas) missing.push('找不到 #curve');
+  if (!previewImg) missing.push('找不到 #png-preview');
+  if (!downloadBtn) missing.push('找不到 #download 按鈕');
+  if (!window.Papa) missing.push('缺少 Papa Parse');
+  if (!window.JSZip) missing.push('缺少 JSZip');
+  const ctx = chartCanvas?.getContext?.('2d');
+  if (!ctx) missing.push('無法取得畫布 2D context');
+
+  if (missing.length) {
+    const message = missing.join('；');
+    updateStatus(message);
+    throw new Error(message);
+  }
 }
 
 async function readTextFromFile(file) {
@@ -87,9 +113,87 @@ function parseCsv(csvText) {
     throw new Error('CSV 中沒有資料。');
   }
 
-  const headers = rows[0].map((cell) => String(cell).trim());
-  const body = rows.slice(1);
-  return { headers, rows: body };
+  const trimmedRows = rows.map((row) => row.map((cell) => String(cell).trim()));
+  const limit = Math.min(trimmedRows.length, 100);
+  let best = null;
+
+  for (let i = 0; i < limit; i++) {
+    const candidateHeaders = trimmedRows[i];
+    const mapping = buildMapping(candidateHeaders);
+    if (mapping.time === undefined || mapping.bt === undefined) continue;
+
+    const body = trimmedRows.slice(i + 1);
+    const stats = evaluateTimeColumn(body, mapping.time, 80);
+    const qualifies =
+      stats.finiteCount >= 30 && stats.uniqueCount >= 30 && stats.range >= 60 && stats.positiveDtRatio > 0.7;
+    if (!qualifies) continue;
+
+    const score = stats.uniqueCount + stats.range + stats.positiveDtRatio * 100;
+    if (!best || score > best.score) {
+      best = { headers: candidateHeaders, rows: body, mapping, stats, headerRowIndex: i, score };
+    }
+  }
+
+  if (best) {
+    return {
+      headers: best.headers,
+      rows: best.rows,
+      mapping: best.mapping,
+      headerRowIndex: best.headerRowIndex,
+      timeHeaderName: best.headers[best.mapping.time],
+      btHeaderName: best.headers[best.mapping.bt],
+      timeUniqueCount: best.stats.uniqueCount,
+      timeRange: best.stats.range,
+      positiveDtRatio: best.stats.positiveDtRatio,
+    };
+  }
+
+  const headers = trimmedRows[0];
+  const body = trimmedRows.slice(1);
+  const mapping = buildMapping(headers);
+  const fallbackStats = evaluateTimeColumn(body, mapping.time, 80);
+  return {
+    headers,
+    rows: body,
+    mapping,
+    headerRowIndex: 0,
+    timeHeaderName: headers[mapping.time],
+    btHeaderName: headers[mapping.bt],
+    timeUniqueCount: fallbackStats.uniqueCount,
+    timeRange: fallbackStats.range,
+    positiveDtRatio: fallbackStats.positiveDtRatio,
+  };
+}
+
+function evaluateTimeColumn(rows, timeIndex, maxSamples) {
+  if (timeIndex === undefined) {
+    return { finiteCount: 0, uniqueCount: 0, range: 0, positiveDtRatio: 0 };
+  }
+  const sampleRows = rows.slice(0, maxSamples);
+  const times = sampleRows.map((row) => parseTime(row[timeIndex]));
+  const finiteTimes = times.filter(Number.isFinite);
+  const finiteCount = finiteTimes.length;
+  const uniqueTimes = new Set(finiteTimes);
+  const uniqueCount = uniqueTimes.size;
+  const range = finiteCount ? Math.max(...finiteTimes) - Math.min(...finiteTimes) : 0;
+
+  let last = null;
+  let positive = 0;
+  let total = 0;
+  for (const t of times) {
+    if (!Number.isFinite(t)) continue;
+    if (Number.isFinite(last)) {
+      const dt = t - last;
+      if (dt !== 0) {
+        total++;
+        if (dt > 0) positive++;
+      }
+    }
+    last = t;
+  }
+  const positiveDtRatio = total ? positive / total : 0;
+
+  return { finiteCount, uniqueCount, range, positiveDtRatio };
 }
 
 function normalizeKey(text) {
@@ -106,14 +210,25 @@ function buildMapping(headers) {
     key: normalizeKey(header),
   }));
 
-  const find = (keywords) => {
-    const match = normalized.find(({ key }) => keywords.some((word) => key.includes(word)));
+  const timeCandidates = ['time', 'timesec', 'sec', 'seconds', '時間', '時刻'];
+  const timeBlacklist = ['totaltime', 'roastingtotaltime', 'roasttime'];
+  const btBlacklist = ['loadbean', 'outbean'];
+
+  const findTime = () => {
+    const match = normalized.find(({ key }) => timeCandidates.includes(key) && !timeBlacklist.some((bad) => key.includes(bad)));
+    return match?.index;
+  };
+
+  const find = (keywords, blacklist = []) => {
+    const match = normalized.find(
+      ({ key }) => keywords.some((word) => key.includes(word)) && !blacklist.some((bad) => key.includes(bad))
+    );
     return match?.index;
   };
 
   return {
-    time: find(['time', 'sec', '時間', '時刻']),
-    bt: find(['beantemp', 'bt', '豆溫', 'beantemperature']),
+    time: findTime(),
+    bt: find(['beantemp', 'bt', '豆溫', 'beantemperature'], btBlacklist),
     et: find(['exhaust', 'et', '環境', '排氣', 'exhausttemp']),
     power: find(['power', '火力', 'heater']),
     fan: find(['fan', '風門', 'air']),
@@ -187,8 +302,8 @@ function normalizeControlLevels(values, maxLevel) {
   });
 }
 
-function prepareSeries({ headers, rows }) {
-  const mapping = buildMapping(headers);
+function prepareSeries({ headers, rows, mapping: initialMapping, headerRowIndex, timeHeaderName, btHeaderName, timeUniqueCount, timeRange, positiveDtRatio }) {
+  const mapping = initialMapping || buildMapping(headers);
   if (mapping.time === undefined || mapping.bt === undefined) {
     throw new Error('CSV 必須至少包含時間與豆溫欄位。');
   }
@@ -210,6 +325,23 @@ function prepareSeries({ headers, rows }) {
     throw new Error('沒有有效時間資料點。');
   }
 
+  const positiveDt = [];
+  let lastFinite = null;
+  for (const t of timeSec) {
+    if (!Number.isFinite(t)) continue;
+    if (Number.isFinite(lastFinite)) {
+      const dt = t - lastFinite;
+      if (dt > 0) positiveDt.push(dt);
+    }
+    lastFinite = t;
+  }
+  const medianDt = positiveDt.length ? percentile(positiveDt, 0.5) : NaN;
+  const maxTime = finiteTimes.length ? Math.max(...finiteTimes) : NaN;
+  const looksMinute = Number.isFinite(medianDt) && Number.isFinite(maxTime) && medianDt < 0.2 && maxTime < 60;
+  const timeUnit = looksMinute ? 'min->sec' : 'sec';
+  const adjustedTimeSec = looksMinute ? timeSec.map((t) => (Number.isFinite(t) ? t * 60 : t)) : timeSec;
+  const adjustedFiniteTimes = adjustedTimeSec.filter(Number.isFinite);
+
   const btRaw = records.map((r) => r.bt);
   const etRaw = records.map((r) => r.et);
   const powerRaw = records.map((r) => r.power);
@@ -221,13 +353,13 @@ function prepareSeries({ headers, rows }) {
   const fanLevels = normalizeControlLevels(forwardFill(fanRaw, 0), 15);
 
   const chargeIndex = records.findIndex((r) => /charge/i.test(r.event));
-  const chargeTime = Number.isFinite(timeSec[chargeIndex]) ? timeSec[chargeIndex] : NaN;
-  let baseTime = Number.isFinite(chargeTime) ? chargeTime : finiteTimes[0];
+  const chargeTime = Number.isFinite(adjustedTimeSec[chargeIndex]) ? adjustedTimeSec[chargeIndex] : NaN;
+  let baseTime = Number.isFinite(chargeTime) ? chargeTime : adjustedFiniteTimes[0];
   if (!Number.isFinite(baseTime)) {
     throw new Error('無法決定時間基準點。');
   }
 
-  const times = timeSec.map((t) => {
+  const times = adjustedTimeSec.map((t) => {
     if (!Number.isFinite(t)) return NaN;
     return Math.max(0, t - baseTime);
   });
@@ -247,7 +379,7 @@ function prepareSeries({ headers, rows }) {
   }
 
   const ror = computeRoR(sorted);
-  const positiveRoR = ror.filter((v) => Number.isFinite(v) && v > 0);
+  const positiveRoR = ror.filter((v) => Number.isFinite(v) && v > 0 && v < 200);
   let maxPositiveRoR = positiveRoR.length ? Math.max(...positiveRoR) : NaN;
   if (!Number.isFinite(maxPositiveRoR) || maxPositiveRoR <= 0) {
     maxPositiveRoR = 25;
@@ -260,6 +392,7 @@ function prepareSeries({ headers, rows }) {
   const phases = buildPhases(sorted, events);
 
   return {
+    headers,
     samples: sorted,
     ror,
     rightMax,
@@ -267,28 +400,65 @@ function prepareSeries({ headers, rows }) {
     events,
     phases,
     maxPositiveRoR,
+    timeUnit,
+    medianDt,
+    maxTime,
     totalRecords: records.length,
     totalTime: sorted[sorted.length - 1].t,
+    baseTime,
+    firstTime: sorted[0].t,
+    lastTime: sorted[sorted.length - 1].t,
+    sampleCount: sorted.length,
+    headerRowIndex,
+    timeHeaderName: timeHeaderName ?? headers[mapping.time],
+    btHeaderName: btHeaderName ?? headers[mapping.bt],
+    timeUniqueCount,
+    timeRange,
+    positiveDtRatio,
   };
 }
 
 function computeRoR(samples) {
   const ror = new Array(samples.length).fill(null);
   let firstPositiveSeen = false;
+  let start = 0;
+  let sumT = 0;
+  let sumBt = 0;
+  let sumTT = 0;
+  let sumTBt = 0;
+
   for (let i = 0; i < samples.length; i++) {
-    const currentTime = samples[i].t;
-    const window = samples.filter((s) => s.t >= currentTime - 30 && s.t <= currentTime);
-    if (window.length < 2) continue;
-    const meanT = window.reduce((sum, s) => sum + s.t, 0) / window.length;
-    const meanBt = window.reduce((sum, s) => sum + s.bt, 0) / window.length;
-    const numerator = window.reduce((sum, s) => sum + (s.t - meanT) * (s.bt - meanBt), 0);
-    const denominator = window.reduce((sum, s) => sum + (s.t - meanT) ** 2, 0);
+    const { t, bt } = samples[i];
+    sumT += t;
+    sumBt += bt;
+    sumTT += t * t;
+    sumTBt += t * bt;
+
+    while (start <= i && samples[start].t < t - 30) {
+      const oldT = samples[start].t;
+      const oldBt = samples[start].bt;
+      sumT -= oldT;
+      sumBt -= oldBt;
+      sumTT -= oldT * oldT;
+      sumTBt -= oldT * oldBt;
+      start++;
+    }
+
+    const n = i - start + 1;
+    if (n < 2) continue;
+
+    const meanT = sumT / n;
+    const meanBt = sumBt / n;
+    const numerator = sumTBt - n * meanT * meanBt;
+    const denominator = sumTT - n * meanT * meanT;
     if (denominator === 0) continue;
+
     const slopePerSec = numerator / denominator;
     const slopePerMin = slopePerSec * 60;
     if (slopePerMin > 0) firstPositiveSeen = true;
     ror[i] = firstPositiveSeen ? slopePerMin : null;
   }
+
   return ror;
 }
 
@@ -333,7 +503,14 @@ function formatTimeLabel(seconds) {
 }
 
 function renderMeta(prepared, headers) {
-  metaEl.textContent = `資料點：${prepared.totalRecords}｜有效資料點：${prepared.samples.length}｜rightMax=${prepared.rightMax}｜tempMax=${prepared.tempMax}｜maxPositiveRoR=${prepared.maxPositiveRoR.toFixed(2)}｜欄位：${headers.join(', ')}`;
+  const formatVal = (val, digits = 2) => (Number.isFinite(val) ? val.toFixed(digits) : 'NaN');
+  const warnings = [];
+  if (prepared.totalTime < 30 || prepared.sampleCount < 30) {
+    warnings.push('資料時間軸可能解析異常');
+  }
+  const warningText = warnings.length ? `｜警告：${warnings.join('；')}` : '';
+  metaEl.textContent =
+    `資料點：${prepared.totalRecords}｜有效資料點：${prepared.samples.length}｜timeUnit=${prepared.timeUnit}｜medianDt=${formatVal(prepared.medianDt)}｜maxTime=${formatVal(prepared.maxTime)}｜rightMax=${prepared.rightMax}｜tempMax=${prepared.tempMax}｜maxPositiveRoR=${formatVal(prepared.maxPositiveRoR)}｜baseTime=${formatVal(prepared.baseTime)}｜totalTime=${formatVal(prepared.totalTime)}｜firstTime=${formatVal(prepared.firstTime)}｜lastTime=${formatVal(prepared.lastTime)}｜sampleCount=${prepared.sampleCount}｜headerRowIndex=${prepared.headerRowIndex}｜timeHeaderName=${prepared.timeHeaderName ?? 'N/A'}｜btHeaderName=${prepared.btHeaderName ?? 'N/A'}｜timeUniqueCount=${formatVal(prepared.timeUniqueCount, 0)}｜timeRange=${formatVal(prepared.timeRange)}｜positiveDtRatio=${formatVal(prepared.positiveDtRatio)}${warningText}｜欄位：${headers.join(', ')}`;
 }
 
 function niceTimeStep(totalTime) {
