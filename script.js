@@ -87,8 +87,18 @@ function parseCsv(csvText) {
     throw new Error('CSV 中沒有資料。');
   }
 
-  const headers = rows[0].map((cell) => String(cell).trim());
-  const body = rows.slice(1);
+  const trimmedRows = rows.map((row) => row.map((cell) => String(cell).trim()));
+  for (let i = 0; i < Math.min(trimmedRows.length, 5); i++) {
+    const candidateHeaders = trimmedRows[i];
+    const mapping = buildMapping(candidateHeaders);
+    if (mapping.time !== undefined && mapping.bt !== undefined) {
+      const body = trimmedRows.slice(i + 1);
+      return { headers: candidateHeaders, rows: body };
+    }
+  }
+
+  const headers = trimmedRows[0];
+  const body = trimmedRows.slice(1);
   return { headers, rows: body };
 }
 
@@ -210,6 +220,23 @@ function prepareSeries({ headers, rows }) {
     throw new Error('沒有有效時間資料點。');
   }
 
+  const positiveDt = [];
+  let lastFinite = null;
+  for (const t of timeSec) {
+    if (!Number.isFinite(t)) continue;
+    if (Number.isFinite(lastFinite)) {
+      const dt = t - lastFinite;
+      if (dt > 0) positiveDt.push(dt);
+    }
+    lastFinite = t;
+  }
+  const medianDt = positiveDt.length ? percentile(positiveDt, 0.5) : NaN;
+  const maxTime = finiteTimes.length ? Math.max(...finiteTimes) : NaN;
+  const looksMinute = Number.isFinite(medianDt) && Number.isFinite(maxTime) && medianDt < 0.2 && maxTime < 60;
+  const timeUnit = looksMinute ? 'min->sec' : 'sec';
+  const adjustedTimeSec = looksMinute ? timeSec.map((t) => (Number.isFinite(t) ? t * 60 : t)) : timeSec;
+  const adjustedFiniteTimes = adjustedTimeSec.filter(Number.isFinite);
+
   const btRaw = records.map((r) => r.bt);
   const etRaw = records.map((r) => r.et);
   const powerRaw = records.map((r) => r.power);
@@ -221,13 +248,13 @@ function prepareSeries({ headers, rows }) {
   const fanLevels = normalizeControlLevels(forwardFill(fanRaw, 0), 15);
 
   const chargeIndex = records.findIndex((r) => /charge/i.test(r.event));
-  const chargeTime = Number.isFinite(timeSec[chargeIndex]) ? timeSec[chargeIndex] : NaN;
-  let baseTime = Number.isFinite(chargeTime) ? chargeTime : finiteTimes[0];
+  const chargeTime = Number.isFinite(adjustedTimeSec[chargeIndex]) ? adjustedTimeSec[chargeIndex] : NaN;
+  let baseTime = Number.isFinite(chargeTime) ? chargeTime : adjustedFiniteTimes[0];
   if (!Number.isFinite(baseTime)) {
     throw new Error('無法決定時間基準點。');
   }
 
-  const times = timeSec.map((t) => {
+  const times = adjustedTimeSec.map((t) => {
     if (!Number.isFinite(t)) return NaN;
     return Math.max(0, t - baseTime);
   });
@@ -247,7 +274,7 @@ function prepareSeries({ headers, rows }) {
   }
 
   const ror = computeRoR(sorted);
-  const positiveRoR = ror.filter((v) => Number.isFinite(v) && v > 0);
+  const positiveRoR = ror.filter((v) => Number.isFinite(v) && v > 0 && v < 200);
   let maxPositiveRoR = positiveRoR.length ? Math.max(...positiveRoR) : NaN;
   if (!Number.isFinite(maxPositiveRoR) || maxPositiveRoR <= 0) {
     maxPositiveRoR = 25;
@@ -267,6 +294,9 @@ function prepareSeries({ headers, rows }) {
     events,
     phases,
     maxPositiveRoR,
+    timeUnit,
+    medianDt,
+    maxTime,
     totalRecords: records.length,
     totalTime: sorted[sorted.length - 1].t,
   };
@@ -333,7 +363,8 @@ function formatTimeLabel(seconds) {
 }
 
 function renderMeta(prepared, headers) {
-  metaEl.textContent = `資料點：${prepared.totalRecords}｜有效資料點：${prepared.samples.length}｜rightMax=${prepared.rightMax}｜tempMax=${prepared.tempMax}｜maxPositiveRoR=${prepared.maxPositiveRoR.toFixed(2)}｜欄位：${headers.join(', ')}`;
+  const formatVal = (val, digits = 2) => (Number.isFinite(val) ? val.toFixed(digits) : 'NaN');
+  metaEl.textContent = `資料點：${prepared.totalRecords}｜有效資料點：${prepared.samples.length}｜timeUnit=${prepared.timeUnit}｜medianDt=${formatVal(prepared.medianDt)}｜maxTime=${formatVal(prepared.maxTime)}｜rightMax=${prepared.rightMax}｜tempMax=${prepared.tempMax}｜maxPositiveRoR=${formatVal(prepared.maxPositiveRoR)}｜欄位：${headers.join(', ')}`;
 }
 
 function niceTimeStep(totalTime) {
