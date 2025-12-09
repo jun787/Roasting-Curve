@@ -4,11 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>曲線圖繪製器</title>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Roasting Curve Viewer</title>
   <link rel="stylesheet" href="styles.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" defer></script>
@@ -20,8 +15,6 @@
     <header>
       <h1>曲線圖繪製器</h1>
       <p>上傳 CSV 或 ZIP（內含 CSV），自動解析並繪製烘焙曲線，可下載 PNG 圖檔。</p>
-      <h1>Roasting Curve Viewer</h1>
-      <p>Upload a zip file that contains your roast CSV and preview the curve right in the browser.</p>
     </header>
 
     <section class="card">
@@ -34,11 +27,6 @@
         <button id="download" class="button ghost" type="button" disabled>下載 PNG</button>
       </div>
       <div id="status" role="status" aria-live="polite" class="status">等待上傳檔案…</div>
-        <label for="zip-input" class="button">Choose zip file</label>
-        <input id="zip-input" type="file" accept=".zip" aria-label="Roast log zip" />
-        <div class="hint">Expected CSV columns: time (seconds), bean temperature, environment temperature.</div>
-      </div>
-      <div id="status" role="status" aria-live="polite" class="status">Waiting for a file…</div>
     </section>
 
     <section class="card">
@@ -51,10 +39,6 @@
         <div id="phase-text" class="phase"></div>
         <div id="drop-text" class="phase minor"></div>
       </div>
-        <h2>Roasting curve</h2>
-        <div id="meta" class="meta"></div>
-      </div>
-      <canvas id="curve" aria-label="Roast curve chart"></canvas>
     </section>
   </main>
 </body>

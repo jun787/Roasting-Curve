@@ -2,12 +2,6 @@
   font-family: "Inter", system-ui, -apple-system, sans-serif;
   line-height: 1.6;
   background: #0b1021;
-  color-scheme: light dark;
-  font-family: "Inter", system-ui, -apple-system, sans-serif;
-  line-height: 1.6;
-  background: radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.06), transparent 30%),
-    radial-gradient(circle at 80% 0%, rgba(255, 255, 255, 0.1), transparent 25%),
-    #0f172a;
   color: #e2e8f0;
 }
 
@@ -18,7 +12,6 @@ body {
 
 .page {
   max-width: 1120px;
-  max-width: 960px;
   margin: 0 auto;
   padding: 32px 20px 48px;
 }
@@ -30,18 +23,11 @@ h1 {
 
 header p {
   margin: 0 0 1.75em;
-  margin: 0 0 0.25em;
-  font-weight: 700;
-}
-
-header p {
-  margin: 0 0 1.5em;
   color: #cbd5e1;
 }
 
 .card {
   background: rgba(14, 23, 42, 0.75);
-  background: rgba(15, 23, 42, 0.7);
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 14px;
   padding: 18px 18px 22px;
@@ -84,13 +70,11 @@ header p {
 }
 
 .button:hover:not(:disabled) {
-.button:hover {
   transform: translateY(-1px);
   box-shadow: 0 12px 30px rgba(249, 115, 22, 0.45);
 }
 
 #file-input {
-#zip-input {
   position: absolute;
   opacity: 0;
   width: 1px;
@@ -127,7 +111,6 @@ header p {
 canvas {
   margin-top: 12px;
   background: rgba(12, 18, 36, 0.9);
-  background: rgba(15, 23, 42, 0.6);
   border-radius: 12px;
   padding: 8px;
 }
