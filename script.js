@@ -114,18 +114,86 @@ function parseCsv(csvText) {
   }
 
   const trimmedRows = rows.map((row) => row.map((cell) => String(cell).trim()));
-  for (let i = 0; i < Math.min(trimmedRows.length, 5); i++) {
+  const limit = Math.min(trimmedRows.length, 100);
+  let best = null;
+
+  for (let i = 0; i < limit; i++) {
     const candidateHeaders = trimmedRows[i];
     const mapping = buildMapping(candidateHeaders);
-    if (mapping.time !== undefined && mapping.bt !== undefined) {
-      const body = trimmedRows.slice(i + 1);
-      return { headers: candidateHeaders, rows: body };
+    if (mapping.time === undefined || mapping.bt === undefined) continue;
+
+    const body = trimmedRows.slice(i + 1);
+    const stats = evaluateTimeColumn(body, mapping.time, 80);
+    const qualifies =
+      stats.finiteCount >= 30 && stats.uniqueCount >= 30 && stats.range >= 60 && stats.positiveDtRatio > 0.7;
+    if (!qualifies) continue;
+
+    const score = stats.uniqueCount + stats.range + stats.positiveDtRatio * 100;
+    if (!best || score > best.score) {
+      best = { headers: candidateHeaders, rows: body, mapping, stats, headerRowIndex: i, score };
     }
+  }
+
+  if (best) {
+    return {
+      headers: best.headers,
+      rows: best.rows,
+      mapping: best.mapping,
+      headerRowIndex: best.headerRowIndex,
+      timeHeaderName: best.headers[best.mapping.time],
+      btHeaderName: best.headers[best.mapping.bt],
+      timeUniqueCount: best.stats.uniqueCount,
+      timeRange: best.stats.range,
+      positiveDtRatio: best.stats.positiveDtRatio,
+    };
   }
 
   const headers = trimmedRows[0];
   const body = trimmedRows.slice(1);
-  return { headers, rows: body };
+  const mapping = buildMapping(headers);
+  const fallbackStats = evaluateTimeColumn(body, mapping.time, 80);
+  return {
+    headers,
+    rows: body,
+    mapping,
+    headerRowIndex: 0,
+    timeHeaderName: headers[mapping.time],
+    btHeaderName: headers[mapping.bt],
+    timeUniqueCount: fallbackStats.uniqueCount,
+    timeRange: fallbackStats.range,
+    positiveDtRatio: fallbackStats.positiveDtRatio,
+  };
+}
+
+function evaluateTimeColumn(rows, timeIndex, maxSamples) {
+  if (timeIndex === undefined) {
+    return { finiteCount: 0, uniqueCount: 0, range: 0, positiveDtRatio: 0 };
+  }
+  const sampleRows = rows.slice(0, maxSamples);
+  const times = sampleRows.map((row) => parseTime(row[timeIndex]));
+  const finiteTimes = times.filter(Number.isFinite);
+  const finiteCount = finiteTimes.length;
+  const uniqueTimes = new Set(finiteTimes);
+  const uniqueCount = uniqueTimes.size;
+  const range = finiteCount ? Math.max(...finiteTimes) - Math.min(...finiteTimes) : 0;
+
+  let last = null;
+  let positive = 0;
+  let total = 0;
+  for (const t of times) {
+    if (!Number.isFinite(t)) continue;
+    if (Number.isFinite(last)) {
+      const dt = t - last;
+      if (dt !== 0) {
+        total++;
+        if (dt > 0) positive++;
+      }
+    }
+    last = t;
+  }
+  const positiveDtRatio = total ? positive / total : 0;
+
+  return { finiteCount, uniqueCount, range, positiveDtRatio };
 }
 
 function normalizeKey(text) {
@@ -142,14 +210,25 @@ function buildMapping(headers) {
     key: normalizeKey(header),
   }));
 
-  const find = (keywords) => {
-    const match = normalized.find(({ key }) => keywords.some((word) => key.includes(word)));
+  const timeCandidates = ['time', 'timesec', 'sec', 'seconds', '時間', '時刻'];
+  const timeBlacklist = ['totaltime', 'roastingtotaltime', 'roasttime'];
+  const btBlacklist = ['loadbean', 'outbean'];
+
+  const findTime = () => {
+    const match = normalized.find(({ key }) => timeCandidates.includes(key) && !timeBlacklist.some((bad) => key.includes(bad)));
+    return match?.index;
+  };
+
+  const find = (keywords, blacklist = []) => {
+    const match = normalized.find(
+      ({ key }) => keywords.some((word) => key.includes(word)) && !blacklist.some((bad) => key.includes(bad))
+    );
     return match?.index;
   };
 
   return {
-    time: find(['time', 'sec', '時間', '時刻']),
-    bt: find(['beantemp', 'bt', '豆溫', 'beantemperature']),
+    time: findTime(),
+    bt: find(['beantemp', 'bt', '豆溫', 'beantemperature'], btBlacklist),
     et: find(['exhaust', 'et', '環境', '排氣', 'exhausttemp']),
     power: find(['power', '火力', 'heater']),
     fan: find(['fan', '風門', 'air']),
@@ -223,8 +302,8 @@ function normalizeControlLevels(values, maxLevel) {
   });
 }
 
-function prepareSeries({ headers, rows }) {
-  const mapping = buildMapping(headers);
+function prepareSeries({ headers, rows, mapping: initialMapping, headerRowIndex, timeHeaderName, btHeaderName, timeUniqueCount, timeRange, positiveDtRatio }) {
+  const mapping = initialMapping || buildMapping(headers);
   if (mapping.time === undefined || mapping.bt === undefined) {
     throw new Error('CSV 必須至少包含時間與豆溫欄位。');
   }
@@ -313,6 +392,7 @@ function prepareSeries({ headers, rows }) {
   const phases = buildPhases(sorted, events);
 
   return {
+    headers,
     samples: sorted,
     ror,
     rightMax,
@@ -329,6 +409,12 @@ function prepareSeries({ headers, rows }) {
     firstTime: sorted[0].t,
     lastTime: sorted[sorted.length - 1].t,
     sampleCount: sorted.length,
+    headerRowIndex,
+    timeHeaderName: timeHeaderName ?? headers[mapping.time],
+    btHeaderName: btHeaderName ?? headers[mapping.bt],
+    timeUniqueCount,
+    timeRange,
+    positiveDtRatio,
   };
 }
 
@@ -424,7 +510,7 @@ function renderMeta(prepared, headers) {
   }
   const warningText = warnings.length ? `｜警告：${warnings.join('；')}` : '';
   metaEl.textContent =
-    `資料點：${prepared.totalRecords}｜有效資料點：${prepared.samples.length}｜timeUnit=${prepared.timeUnit}｜medianDt=${formatVal(prepared.medianDt)}｜maxTime=${formatVal(prepared.maxTime)}｜rightMax=${prepared.rightMax}｜tempMax=${prepared.tempMax}｜maxPositiveRoR=${formatVal(prepared.maxPositiveRoR)}｜baseTime=${formatVal(prepared.baseTime)}｜totalTime=${formatVal(prepared.totalTime)}｜firstTime=${formatVal(prepared.firstTime)}｜lastTime=${formatVal(prepared.lastTime)}｜sampleCount=${prepared.sampleCount}${warningText}｜欄位：${headers.join(', ')}`;
+    `資料點：${prepared.totalRecords}｜有效資料點：${prepared.samples.length}｜timeUnit=${prepared.timeUnit}｜medianDt=${formatVal(prepared.medianDt)}｜maxTime=${formatVal(prepared.maxTime)}｜rightMax=${prepared.rightMax}｜tempMax=${prepared.tempMax}｜maxPositiveRoR=${formatVal(prepared.maxPositiveRoR)}｜baseTime=${formatVal(prepared.baseTime)}｜totalTime=${formatVal(prepared.totalTime)}｜firstTime=${formatVal(prepared.firstTime)}｜lastTime=${formatVal(prepared.lastTime)}｜sampleCount=${prepared.sampleCount}｜headerRowIndex=${prepared.headerRowIndex}｜timeHeaderName=${prepared.timeHeaderName ?? 'N/A'}｜btHeaderName=${prepared.btHeaderName ?? 'N/A'}｜timeUniqueCount=${formatVal(prepared.timeUniqueCount, 0)}｜timeRange=${formatVal(prepared.timeRange)}｜positiveDtRatio=${formatVal(prepared.positiveDtRatio)}${warningText}｜欄位：${headers.join(', ')}`;
 }
 
 function niceTimeStep(totalTime) {
