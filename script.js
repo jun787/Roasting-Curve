@@ -9,7 +9,10 @@ const downloadBtn = document.getElementById('download');
 
 let currentBlobUrl = null;
 
+ensureEnvironment();
+
 fileInput.addEventListener('change', async (event) => {
+  ensureEnvironment();
   const [file] = event.target.files || [];
   if (!file) return;
 
@@ -47,7 +50,7 @@ downloadBtn.addEventListener('click', () => {
 });
 
 function setPreview(url) {
-  if (currentBlobUrl) {
+  if (currentBlobUrl && currentBlobUrl.startsWith('blob:')) {
     URL.revokeObjectURL(currentBlobUrl);
   }
   currentBlobUrl = url;
@@ -56,6 +59,29 @@ function setPreview(url) {
 
 function updateStatus(message) {
   statusEl.textContent = message;
+}
+
+function ensureEnvironment() {
+  if (!statusEl) {
+    throw new Error('找不到 #status 元素。');
+  }
+
+  const missing = [];
+  if (!fileInput) missing.push('找不到 #file-input');
+  if (!metaEl) missing.push('找不到 #meta');
+  if (!chartCanvas) missing.push('找不到 #curve');
+  if (!previewImg) missing.push('找不到 #png-preview');
+  if (!downloadBtn) missing.push('找不到 #download 按鈕');
+  if (!window.Papa) missing.push('缺少 Papa Parse');
+  if (!window.JSZip) missing.push('缺少 JSZip');
+  const ctx = chartCanvas?.getContext?.('2d');
+  if (!ctx) missing.push('無法取得畫布 2D context');
+
+  if (missing.length) {
+    const message = missing.join('；');
+    updateStatus(message);
+    throw new Error(message);
+  }
 }
 
 async function readTextFromFile(file) {
@@ -299,26 +325,54 @@ function prepareSeries({ headers, rows }) {
     maxTime,
     totalRecords: records.length,
     totalTime: sorted[sorted.length - 1].t,
+    baseTime,
+    firstTime: sorted[0].t,
+    lastTime: sorted[sorted.length - 1].t,
+    sampleCount: sorted.length,
   };
 }
 
 function computeRoR(samples) {
   const ror = new Array(samples.length).fill(null);
   let firstPositiveSeen = false;
+  let start = 0;
+  let sumT = 0;
+  let sumBt = 0;
+  let sumTT = 0;
+  let sumTBt = 0;
+
   for (let i = 0; i < samples.length; i++) {
-    const currentTime = samples[i].t;
-    const window = samples.filter((s) => s.t >= currentTime - 30 && s.t <= currentTime);
-    if (window.length < 2) continue;
-    const meanT = window.reduce((sum, s) => sum + s.t, 0) / window.length;
-    const meanBt = window.reduce((sum, s) => sum + s.bt, 0) / window.length;
-    const numerator = window.reduce((sum, s) => sum + (s.t - meanT) * (s.bt - meanBt), 0);
-    const denominator = window.reduce((sum, s) => sum + (s.t - meanT) ** 2, 0);
+    const { t, bt } = samples[i];
+    sumT += t;
+    sumBt += bt;
+    sumTT += t * t;
+    sumTBt += t * bt;
+
+    while (start <= i && samples[start].t < t - 30) {
+      const oldT = samples[start].t;
+      const oldBt = samples[start].bt;
+      sumT -= oldT;
+      sumBt -= oldBt;
+      sumTT -= oldT * oldT;
+      sumTBt -= oldT * oldBt;
+      start++;
+    }
+
+    const n = i - start + 1;
+    if (n < 2) continue;
+
+    const meanT = sumT / n;
+    const meanBt = sumBt / n;
+    const numerator = sumTBt - n * meanT * meanBt;
+    const denominator = sumTT - n * meanT * meanT;
     if (denominator === 0) continue;
+
     const slopePerSec = numerator / denominator;
     const slopePerMin = slopePerSec * 60;
     if (slopePerMin > 0) firstPositiveSeen = true;
     ror[i] = firstPositiveSeen ? slopePerMin : null;
   }
+
   return ror;
 }
 
@@ -364,7 +418,13 @@ function formatTimeLabel(seconds) {
 
 function renderMeta(prepared, headers) {
   const formatVal = (val, digits = 2) => (Number.isFinite(val) ? val.toFixed(digits) : 'NaN');
-  metaEl.textContent = `資料點：${prepared.totalRecords}｜有效資料點：${prepared.samples.length}｜timeUnit=${prepared.timeUnit}｜medianDt=${formatVal(prepared.medianDt)}｜maxTime=${formatVal(prepared.maxTime)}｜rightMax=${prepared.rightMax}｜tempMax=${prepared.tempMax}｜maxPositiveRoR=${formatVal(prepared.maxPositiveRoR)}｜欄位：${headers.join(', ')}`;
+  const warnings = [];
+  if (prepared.totalTime < 30 || prepared.sampleCount < 30) {
+    warnings.push('資料時間軸可能解析異常');
+  }
+  const warningText = warnings.length ? `｜警告：${warnings.join('；')}` : '';
+  metaEl.textContent =
+    `資料點：${prepared.totalRecords}｜有效資料點：${prepared.samples.length}｜timeUnit=${prepared.timeUnit}｜medianDt=${formatVal(prepared.medianDt)}｜maxTime=${formatVal(prepared.maxTime)}｜rightMax=${prepared.rightMax}｜tempMax=${prepared.tempMax}｜maxPositiveRoR=${formatVal(prepared.maxPositiveRoR)}｜baseTime=${formatVal(prepared.baseTime)}｜totalTime=${formatVal(prepared.totalTime)}｜firstTime=${formatVal(prepared.firstTime)}｜lastTime=${formatVal(prepared.lastTime)}｜sampleCount=${prepared.sampleCount}${warningText}｜欄位：${headers.join(', ')}`;
 }
 
 function niceTimeStep(totalTime) {
