@@ -10,6 +10,9 @@ const downloadBtn = document.getElementById('download');
 let currentBlobUrl = null;
 
 ensureEnvironment();
+if (document.body) {
+  document.body.style.backgroundColor = '#ffffff';
+}
 
 fileInput.addEventListener('change', async (event) => {
   ensureEnvironment();
@@ -531,7 +534,7 @@ async function renderPng({ samples, ror, rightMax, tempMax, events, phases, tota
   const plotWidth = width - margin.left - margin.right;
   const plotHeight = height - margin.top - margin.bottom;
 
-  ctx.fillStyle = '#0b1021';
+  ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, width, height);
 
   const totalDuration = Math.max(totalTime, 1);
