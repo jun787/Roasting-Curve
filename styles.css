@@ -1,4 +1,7 @@
 :root {
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  line-height: 1.6;
+  background: #0b1021;
   color-scheme: light dark;
   font-family: "Inter", system-ui, -apple-system, sans-serif;
   line-height: 1.6;
@@ -14,12 +17,19 @@ body {
 }
 
 .page {
+  max-width: 1120px;
   max-width: 960px;
   margin: 0 auto;
   padding: 32px 20px 48px;
 }
 
 h1 {
+  margin: 0 0 0.35em;
+  font-weight: 800;
+}
+
+header p {
+  margin: 0 0 1.75em;
   margin: 0 0 0.25em;
   font-weight: 700;
 }
@@ -30,6 +40,7 @@ header p {
 }
 
 .card {
+  background: rgba(14, 23, 42, 0.75);
   background: rgba(15, 23, 42, 0.7);
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 14px;
@@ -60,16 +71,34 @@ header p {
   transition: transform 120ms ease, box-shadow 120ms ease;
 }
 
+.button.ghost {
+  background: rgba(255, 255, 255, 0.08);
+  color: #e2e8f0;
+  box-shadow: none;
+  border: 1px dashed rgba(226, 232, 240, 0.35);
+}
+
+.button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.button:hover:not(:disabled) {
 .button:hover {
   transform: translateY(-1px);
   box-shadow: 0 12px 30px rgba(249, 115, 22, 0.45);
 }
 
+#file-input {
 #zip-input {
   position: absolute;
   opacity: 0;
   width: 1px;
   height: 1px;
+}
+
+.actions {
+  margin-top: 10px;
 }
 
 .hint {
@@ -97,9 +126,28 @@ header p {
 
 canvas {
   margin-top: 12px;
+  background: rgba(12, 18, 36, 0.9);
   background: rgba(15, 23, 42, 0.6);
   border-radius: 12px;
   padding: 8px;
+}
+
+.x-footer {
+  margin-top: 10px;
+  color: #cbd5e1;
+  font-weight: 600;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.phase {
+  font-size: 0.98rem;
+}
+
+.phase.minor {
+  color: #a5b4fc;
+  font-weight: 500;
 }
 
 @media (max-width: 640px) {
