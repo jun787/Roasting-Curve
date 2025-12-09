@@ -8,6 +8,12 @@ const dropTextEl = document.getElementById('drop-text');
 const downloadBtn = document.getElementById('download');
 
 let currentBlobUrl = null;
+let currentChartTitle = 'roast-curve';
+
+ensureEnvironment();
+if (document.body) {
+  document.body.style.backgroundColor = '#ffffff';
+}
 
 ensureEnvironment();
 if (document.body) {
@@ -18,6 +24,8 @@ fileInput.addEventListener('change', async (event) => {
   ensureEnvironment();
   const [file] = event.target.files || [];
   if (!file) return;
+
+  currentChartTitle = sanitizeTitle(file.name);
 
   updateStatus(`處理檔案：${file.name}…`);
   metaEl.textContent = '';
@@ -34,7 +42,7 @@ fileInput.addEventListener('change', async (event) => {
     phaseTextEl.textContent = prepared.phases.display;
     dropTextEl.textContent = prepared.phases.dropText;
 
-    const { url } = await renderPng(prepared);
+    const { url } = await renderPng(prepared, currentChartTitle);
     setPreview(url);
     downloadBtn.disabled = false;
     updateStatus('PNG 已產生，可預覽與下載。');
@@ -48,7 +56,7 @@ downloadBtn.addEventListener('click', () => {
   if (!currentBlobUrl) return;
   const link = document.createElement('a');
   link.href = currentBlobUrl;
-  link.download = 'roast-curve.png';
+  link.download = `${currentChartTitle || 'roast-curve'}.png`;
   link.click();
 });
 
@@ -104,6 +112,14 @@ async function readTextFromFile(file) {
   }
   const entry = csvEntries[0];
   return entry.async('text');
+}
+
+function sanitizeTitle(filename) {
+  if (!filename) return 'roast-curve';
+  let name = filename.replace(/\.(zip|csv)$/i, '');
+  name = name.replace(/[_\-\s]*csv$/i, '');
+  name = name.replace(/[_\-]+$/g, '').trim();
+  return name || 'roast-curve';
 }
 
 function parseCsv(csvText) {
@@ -523,19 +539,28 @@ function niceTimeStep(totalTime) {
   return match || candidates[candidates.length - 1];
 }
 
-async function renderPng({ samples, ror, rightMax, tempMax, events, phases, totalTime }) {
-  const width = 1600;
-  const height = 900;
-  chartCanvas.width = width;
-  chartCanvas.height = height;
+async function renderPng({ samples, ror, rightMax, tempMax, events, phases, totalTime }, chartTitle) {
+  const cssWidth = 1600;
+  const cssHeight = 900;
+  const dpr = window.devicePixelRatio || 1;
+  chartCanvas.width = cssWidth * dpr;
+  chartCanvas.height = cssHeight * dpr;
+  chartCanvas.style.width = `${cssWidth}px`;
+  chartCanvas.style.height = `${cssHeight}px`;
   const ctx = chartCanvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if ('textRendering' in ctx) {
+    ctx.textRendering = 'geometricPrecision';
+  }
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
 
   const margin = { top: 60, right: 90, bottom: 150, left: 90 };
-  const plotWidth = width - margin.left - margin.right;
-  const plotHeight = height - margin.top - margin.bottom;
+  const plotWidth = cssWidth - margin.left - margin.right;
+  const plotHeight = cssHeight - margin.top - margin.bottom;
 
   ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, width, height);
+  ctx.fillRect(0, 0, cssWidth, cssHeight);
 
   const totalDuration = Math.max(totalTime, 1);
 
@@ -543,8 +568,8 @@ async function renderPng({ samples, ror, rightMax, tempMax, events, phases, tota
   const mapTempY = (temp) => margin.top + plotHeight - (clamp(temp, 0, tempMax) / tempMax) * plotHeight;
   const mapRorY = (rorVal) => mapTempY(rorVal * 10);
 
-  drawGrid(ctx, margin, width, height, tempMax, totalDuration, mapTempY, mapX);
-  drawAxes(ctx, margin, width, height, tempMax, rightMax, totalDuration, mapTempY, mapRorY, mapX);
+  drawGrid(ctx, margin, cssWidth, cssHeight, tempMax, totalDuration, mapTempY, mapX);
+  drawAxes(ctx, margin, cssWidth, cssHeight, tempMax, rightMax, totalDuration, mapTempY, mapRorY, mapX);
 
   const times = samples.map((s) => s.t);
   const btData = samples.map((s) => s.bt);
@@ -559,7 +584,15 @@ async function renderPng({ samples, ror, rightMax, tempMax, events, phases, tota
   drawStepped(ctx, times, fanData, mapX, mapTempY, '#10b981', [4, 4]);
 
   drawEvents(ctx, events, mapX, mapTempY);
-  drawFooterText(ctx, width, height, margin, phases);
+  drawFooterText(ctx, cssWidth, cssHeight, margin, phases);
+
+  ctx.save();
+  ctx.fillStyle = '#f8fafc';
+  ctx.font = '18px "Inter", system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(chartTitle || 'roast-curve', cssWidth / 2, 28);
+  ctx.restore();
 
   const blob = await new Promise((resolve) => chartCanvas.toBlob(resolve, 'image/png'));
   const url = blob ? URL.createObjectURL(blob) : chartCanvas.toDataURL('image/png');
@@ -568,7 +601,7 @@ async function renderPng({ samples, ror, rightMax, tempMax, events, phases, tota
 
 function drawGrid(ctx, margin, width, height, tempMax, totalDuration, mapTempY, mapX) {
   ctx.save();
-  ctx.strokeStyle = 'rgba(148,163,184,0.18)';
+  ctx.strokeStyle = 'rgba(148,163,184,0.3)';
   ctx.lineWidth = 1;
   ctx.setLineDash([4, 4]);
   for (let t = 0; t <= tempMax; t += 10) {
@@ -581,7 +614,7 @@ function drawGrid(ctx, margin, width, height, tempMax, totalDuration, mapTempY, 
   ctx.setLineDash([]);
 
   const step = niceTimeStep(totalDuration);
-  ctx.strokeStyle = 'rgba(148,163,184,0.12)';
+  ctx.strokeStyle = 'rgba(148,163,184,0.2)';
   for (let t = 0; t <= totalDuration; t += step) {
     const x = mapX(t);
     ctx.beginPath();
@@ -602,8 +635,8 @@ function drawAxes(ctx, margin, width, height, tempMax, rightMax, totalDuration, 
   ctx.lineTo(width - margin.right, height - margin.bottom);
   ctx.stroke();
 
-  ctx.fillStyle = '#e2e8f0';
-  ctx.font = '14px "Inter", system-ui, sans-serif';
+  ctx.fillStyle = '#e5e7eb';
+  ctx.font = '15px "Inter", system-ui, sans-serif';
   ctx.textAlign = 'right';
   ctx.textBaseline = 'middle';
   for (let t = 0; t <= tempMax; t += 50) {
@@ -635,6 +668,8 @@ function drawAxes(ctx, margin, width, height, tempMax, rightMax, totalDuration, 
 
   ctx.textAlign = 'center';
   ctx.textBaseline = 'bottom';
+  ctx.fillStyle = '#f8fafc';
+  ctx.font = '16px "Inter", system-ui, sans-serif';
   ctx.fillText('時間 (mm:ss)', (width - margin.left - margin.right) / 2 + margin.left, height - margin.bottom + 40);
   ctx.save();
   ctx.translate(30, margin.top + plotCenter(margin, height));
@@ -711,7 +746,7 @@ function drawEvents(ctx, events, mapX, mapY) {
   ctx.fillStyle = '#f97316';
   ctx.strokeStyle = '#f97316';
   ctx.lineWidth = 1.5;
-  ctx.font = '12px "Inter", system-ui, sans-serif';
+  ctx.font = '13px "Inter", system-ui, sans-serif';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'bottom';
   events.forEach((e) => {
@@ -720,20 +755,22 @@ function drawEvents(ctx, events, mapX, mapY) {
     ctx.beginPath();
     ctx.arc(x, y, 4, 0, Math.PI * 2);
     ctx.fill();
+    ctx.fillStyle = '#f8fafc';
     ctx.fillText(e.label, x + 6, y - 6);
+    ctx.fillStyle = '#f97316';
   });
   ctx.restore();
 }
 
 function drawFooterText(ctx, width, height, margin, phases) {
   ctx.save();
-  ctx.fillStyle = '#cbd5e1';
+  ctx.fillStyle = '#f8fafc';
   ctx.font = '16px "Inter", system-ui, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
   const center = (width - margin.left - margin.right) / 2 + margin.left;
   ctx.fillText(phases.display, center, height - margin.bottom + 64);
-  ctx.fillStyle = '#a5b4fc';
+  ctx.fillStyle = '#cbd5e1';
   ctx.font = '15px "Inter", system-ui, sans-serif';
   ctx.fillText(phases.dropText, center, height - margin.bottom + 96);
   ctx.restore();
