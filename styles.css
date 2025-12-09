@@ -1,0 +1,148 @@
+:root {
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  line-height: 1.6;
+  background: #0b1021;
+  color: #e2e8f0;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+.page {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 32px 20px 48px;
+}
+
+h1 {
+  margin: 0 0 0.35em;
+  font-weight: 800;
+}
+
+header p {
+  margin: 0 0 1.75em;
+  color: #cbd5e1;
+}
+
+.card {
+  background: rgba(14, 23, 42, 0.75);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 14px;
+  padding: 18px 18px 22px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+  margin-bottom: 18px;
+}
+
+.uploader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: linear-gradient(135deg, #f59e0b, #f97316);
+  border: none;
+  color: #0b0f1a;
+  font-weight: 700;
+  padding: 10px 16px;
+  border-radius: 10px;
+  cursor: pointer;
+  box-shadow: 0 10px 25px rgba(249, 115, 22, 0.35);
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+
+.button.ghost {
+  background: rgba(255, 255, 255, 0.08);
+  color: #e2e8f0;
+  box-shadow: none;
+  border: 1px dashed rgba(226, 232, 240, 0.35);
+}
+
+.button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 30px rgba(249, 115, 22, 0.45);
+}
+
+#file-input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+
+.actions {
+  margin-top: 10px;
+}
+
+.hint {
+  color: #cbd5e1;
+  font-size: 0.95rem;
+}
+
+.status {
+  margin-top: 12px;
+  color: #f8fafc;
+}
+
+.chart-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.meta {
+  color: #cbd5e1;
+  font-size: 0.95rem;
+}
+
+#curve {
+  display: none;
+}
+
+#png-preview {
+  margin-top: 12px;
+  background: rgba(12, 18, 36, 0.9);
+  border-radius: 12px;
+  padding: 8px;
+  max-width: 100%;
+  height: auto;
+  display: block;
+  box-sizing: border-box;
+}
+
+.x-footer {
+  margin-top: 10px;
+  color: #cbd5e1;
+  font-weight: 600;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.phase {
+  font-size: 0.98rem;
+}
+
+.phase.minor {
+  color: #a5b4fc;
+  font-weight: 500;
+}
+
+@media (max-width: 640px) {
+  .page {
+    padding: 20px 14px 32px;
+  }
+}
