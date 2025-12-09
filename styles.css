@@ -108,11 +108,19 @@ header p {
   font-size: 0.95rem;
 }
 
-canvas {
+#curve {
+  display: none;
+}
+
+#png-preview {
   margin-top: 12px;
   background: rgba(12, 18, 36, 0.9);
   border-radius: 12px;
   padding: 8px;
+  max-width: 100%;
+  height: auto;
+  display: block;
+  box-sizing: border-box;
 }
 
 .x-footer {

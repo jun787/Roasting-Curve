@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>曲線圖繪製器</title>
   <link rel="stylesheet" href="styles.css">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js" defer></script>
   <script src="script.js" defer></script>
@@ -35,6 +34,7 @@
         <div id="meta" class="meta"></div>
       </div>
       <canvas id="curve" aria-label="烘焙曲線圖"></canvas>
+      <img id="png-preview" alt="烘焙曲線預覽" />
       <div class="x-footer">
         <div id="phase-text" class="phase"></div>
         <div id="drop-text" class="phase minor"></div>
