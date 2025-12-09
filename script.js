@@ -15,7 +15,7 @@ let lastFileBaseName = 'roast-curve';
 
 ensureEnvironment();
 if (document.body) {
-  document.body.style.backgroundColor = '#ffffff';
+  document.body.style.backgroundColor = '#0f172a';
 }
 
 fileInput.addEventListener('change', async (event) => {
