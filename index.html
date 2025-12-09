@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>曲線圖繪製器</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js" defer></script>
+  <script src="script.js" defer></script>
+</head>
+<body>
+  <main class="page">
+    <header>
+      <h1>曲線圖繪製器</h1>
+      <p>上傳 CSV 或 ZIP（內含 CSV），自動解析並繪製烘焙曲線，可下載 PNG 圖檔。</p>
+    </header>
+
+    <section class="card">
+      <div class="uploader">
+        <label for="file-input" class="button">選擇檔案</label>
+        <input id="file-input" type="file" accept=".csv,.zip" aria-label="上傳烘焙紀錄" />
+        <div class="hint">支援 .csv 或 .zip（會自動挑出首個 CSV；忽略 .rop）。選檔後自動繪圖。</div>
+      </div>
+      <div class="actions">
+        <button id="download" class="button ghost" type="button" disabled>下載 PNG</button>
+      </div>
+      <div id="status" role="status" aria-live="polite" class="status">等待上傳檔案…</div>
+    </section>
+
+    <section class="card">
+      <div class="chart-header">
+        <h2>烘焙曲線</h2>
+        <div id="meta" class="meta"></div>
+      </div>
+      <canvas id="curve" aria-label="烘焙曲線圖"></canvas>
+      <div class="x-footer">
+        <div id="phase-text" class="phase"></div>
+        <div id="drop-text" class="phase minor"></div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
