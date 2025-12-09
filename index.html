@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>烘焙曲線檢視器</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js" defer></script>
+  <script src="script.js" defer></script>
+</head>
+<body>
+  <main class="page">
+    <header>
+      <h1>烘焙曲線檢視器</h1>
+      <p>上傳內含烘焙紀錄 CSV 的 zip 檔，瀏覽器中立即解壓並預覽曲線。</p>
+    </header>
+
+    <section class="card">
+      <div class="uploader">
+        <label for="zip-input" class="button">選擇 zip 檔</label>
+        <input id="zip-input" type="file" accept=".zip" aria-label="烘焙紀錄 zip 檔" />
+        <div class="hint">預期的 CSV 欄位：時間（秒）、豆溫、環境溫度。</div>
+      </div>
+      <div id="status" role="status" aria-live="polite" class="status">等待上傳檔案…</div>
+    </section>
+
+    <section class="card">
+      <div class="chart-header">
+        <h2>烘焙曲線</h2>
+        <div id="meta" class="meta"></div>
+      </div>
+      <canvas id="curve" aria-label="烘焙曲線圖"></canvas>
+    </section>
+  </main>
+</body>
+</html>
