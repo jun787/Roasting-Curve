@@ -142,6 +142,38 @@ function forwardFill(values, initial = 0) {
   });
 }
 
+function percentile(values, ratio) {
+  if (!values.length) return NaN;
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = Math.floor((sorted.length - 1) * ratio);
+  return sorted[index];
+}
+
+function clamp(value, min, max) {
+  if (!Number.isFinite(value)) return min;
+  if (value < min) return min;
+  if (value > max) return max;
+  return value;
+}
+
+function normalizeControlLevels(values, maxLevel) {
+  const finiteValues = values.filter(Number.isFinite);
+  const maxVal = finiteValues.length ? Math.max(...finiteValues) : NaN;
+  const p95 = finiteValues.length ? percentile(finiteValues, 0.95) : NaN;
+  const looksPercent =
+    (Number.isFinite(maxVal) && maxVal > 20 && maxVal <= 100) || (Number.isFinite(p95) && p95 > 20 && p95 <= 100);
+
+  return values.map((val) => {
+    const base = Number.isFinite(val) ? val : 0;
+    if (looksPercent) {
+      const pct = clamp(base, 0, 100);
+      const level = maxLevel === 10 ? Math.round(pct / 10) : Math.round((pct / 100) * maxLevel);
+      return clamp(level, 0, maxLevel);
+    }
+    return clamp(Math.round(base), 0, maxLevel);
+  });
+}
+
 function prepareSeries({ headers, rows }) {
   const mapping = buildMapping(headers);
   if (mapping.time === undefined || mapping.bt === undefined) {
@@ -167,26 +199,36 @@ function prepareSeries({ headers, rows }) {
 
   const bt = forwardFill(btRaw, 0);
   const et = forwardFill(etRaw, 0);
-  const power = forwardFill(powerRaw, 0);
-  const fan = forwardFill(fanRaw, 0);
+  const powerLevels = normalizeControlLevels(forwardFill(powerRaw, 0), 10);
+  const fanLevels = normalizeControlLevels(forwardFill(fanRaw, 0), 15);
 
   const chargeIndex = records.findIndex((r) => /charge/i.test(r.event));
-  const baseTime = Number.isFinite(timeSec[chargeIndex]) ? timeSec[chargeIndex] : Math.min(...timeSec.filter(Number.isFinite));
-  const times = timeSec.map((t) => (Number.isFinite(t) ? Math.max(0, t - baseTime) : 0));
+  const finiteTimes = timeSec.filter(Number.isFinite);
+  const chargeTime = Number.isFinite(timeSec[chargeIndex]) ? timeSec[chargeIndex] : NaN;
+  let baseTime = Number.isFinite(chargeTime) ? chargeTime : finiteTimes[0];
+  if (!Number.isFinite(baseTime)) baseTime = 0;
+  const times = timeSec.map((t) => {
+    if (!Number.isFinite(t) || !Number.isFinite(baseTime)) return NaN;
+    return Math.max(0, t - baseTime);
+  });
 
   const samples = times.map((t, idx) => ({
     t,
     bt: bt[idx],
     et: et[idx],
-    power: power[idx],
-    fan: fan[idx],
+    power: powerLevels[idx],
+    fan: fanLevels[idx],
     event: records[idx].event,
   }));
 
   const sorted = samples.filter((s) => Number.isFinite(s.t)).sort((a, b) => a.t - b.t);
   const ror = computeRoR(sorted);
 
-  const maxPositiveRoR = Math.max(...ror.filter((v) => Number.isFinite(v) && v > 0), 1);
+  const positiveRoR = ror.filter((v) => Number.isFinite(v) && v > 0);
+  let maxPositiveRoR = positiveRoR.length ? Math.max(...positiveRoR) : NaN;
+  if (!Number.isFinite(maxPositiveRoR) || maxPositiveRoR <= 0 || maxPositiveRoR > 80) {
+    maxPositiveRoR = 25;
+  }
   const rightMax = Math.floor(maxPositiveRoR) + 5;
   const tempMax = rightMax * 10;
 
@@ -198,7 +240,7 @@ function prepareSeries({ headers, rows }) {
   phaseTextEl.textContent = phases.display;
   dropTextEl.textContent = phases.dropText;
 
-  return { samples: sorted, ror, xLabels, rightMax, tempMax, events };
+  return { samples: sorted, ror, xLabels, rightMax, tempMax, events, maxPositiveRoR, totalRecords: records.length };
 }
 
 function computeRoR(samples) {
@@ -262,7 +304,7 @@ function formatTimeLabel(seconds) {
 }
 
 function renderMeta(prepared, headers) {
-  metaEl.textContent = `資料點：${prepared.samples.length}｜欄位：${headers.join(', ')}`;
+  metaEl.textContent = `資料點：${prepared.totalRecords}｜有效資料點：${prepared.samples.length}｜rightMax=${prepared.rightMax}｜tempMax=${prepared.tempMax}｜maxPositiveRoR=${prepared.maxPositiveRoR.toFixed(2)}｜欄位：${headers.join(', ')}`;
 }
 
 function renderChart({ samples, ror, xLabels, rightMax, tempMax, events }) {
