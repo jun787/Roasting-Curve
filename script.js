@@ -895,7 +895,7 @@ function drawEvents(ctx, events, mapX, mapY, margin, width, height, times, btDat
   const fontSize = 13;
   const padding = 2;
   const lineGap = 16;
-  const yBandTop = margin.top + 6;
+  const yBandTop = margin.top + 2;
   const yBandBottom = Math.min(margin.top + 42, margin.top + (height - margin.top - margin.bottom) - 4);
   const anchorY = clamp(mapY(tempMax - 10), yBandTop, yBandBottom - lineGap);
   const laneCount = 3;
