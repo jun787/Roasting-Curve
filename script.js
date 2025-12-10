@@ -62,16 +62,17 @@ downloadBtn.addEventListener('click', () => {
 shareBtn.addEventListener('click', async () => {
   if (!currentBlobUrl || !lastPngBlob) return;
   const fileName = `${lastFileBaseName || 'roast-curve'}.png`;
+  const file = new File([lastPngBlob], fileName, { type: 'image/png' });
+  const shareData = { files: [file] };
   const canNativeShare =
     typeof navigator !== 'undefined' &&
     navigator.canShare &&
     navigator.share &&
-    navigator.canShare({ files: [new File([lastPngBlob], fileName, { type: 'image/png' })] });
+    navigator.canShare(shareData);
 
   if (canNativeShare) {
     try {
-      const file = new File([lastPngBlob], fileName, { type: 'image/png' });
-      await navigator.share({ title: lastFileBaseName, files: [file] });
+      await navigator.share(shareData);
       updateStatus('已分享圖片。');
       return;
     } catch (err) {
