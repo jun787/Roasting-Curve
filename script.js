@@ -858,7 +858,8 @@ function drawEvents(ctx, events, mapX, mapY, margin, width, height) {
     ctx.arc(x, y, 4, 0, Math.PI * 2);
     ctx.fill();
 
-    const labelText = `${formatTimeLabel(e.t)} ${e.label}`;
+    const tempLabel = Number.isFinite(e.bt) ? `${Math.round(e.bt)}°C` : '--°C';
+    const labelText = `${formatTimeLabel(e.t)} ${e.label} ${tempLabel}`;
     const metrics = ctx.measureText(labelText);
     let textX = x;
     const half = metrics.width / 2;
