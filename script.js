@@ -641,6 +641,10 @@ function strokeFillText(ctx, text, x, y, fillColor) {
 async function renderPng({ samples, ror, rightMax, tempMax, events, phases, totalTime }, chartTitle) {
   const cssWidth = 1600;
   const cssHeight = 900;
+  const titleBandHeight = 36;
+  const labelBandHeight = 48;
+  const labelBandTop = titleBandHeight;
+  const labelBandBottom = titleBandHeight + labelBandHeight;
   const dpr = window.devicePixelRatio || 1;
   chartCanvas.width = cssWidth * dpr;
   chartCanvas.height = cssHeight * dpr;
@@ -658,7 +662,7 @@ async function renderPng({ samples, ror, rightMax, tempMax, events, phases, tota
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, cssWidth, cssHeight);
 
-  const margin = { top: 60, right: 90, bottom: 150, left: 90 };
+  const margin = { top: titleBandHeight + labelBandHeight + 16, right: 90, bottom: 150, left: 90 };
   const plotWidth = cssWidth - margin.left - margin.right;
   const plotHeight = cssHeight - margin.top - margin.bottom;
 
@@ -683,14 +687,31 @@ async function renderPng({ samples, ror, rightMax, tempMax, events, phases, tota
   drawStepped(ctx, times, powerData, mapX, mapTempY, '#ef4444', [6, 4]);
   drawStepped(ctx, times, fanData, mapX, mapTempY, '#10b981', [4, 4]);
 
-  drawEvents(ctx, events, mapX, mapTempY, margin, cssWidth, cssHeight, times, btData, etData, ror, mapRorY, totalDuration, plotWidth);
+  drawEvents(
+    ctx,
+    events,
+    mapX,
+    mapTempY,
+    margin,
+    cssWidth,
+    cssHeight,
+    times,
+    btData,
+    etData,
+    ror,
+    mapRorY,
+    totalDuration,
+    plotWidth,
+    labelBandTop,
+    labelBandBottom
+  );
   drawFooterText(ctx, cssWidth, cssHeight, margin, phases);
 
   ctx.save();
   ctx.font = '18px "Inter", system-ui, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  strokeFillText(ctx, chartTitle || 'roast-curve', cssWidth / 2, 28, '#0f172a');
+  strokeFillText(ctx, chartTitle || 'roast-curve', cssWidth / 2, 24, '#0f172a');
   ctx.restore();
 
   const blob = await new Promise((resolve) => chartCanvas.toBlob(resolve, 'image/png'));
@@ -866,7 +887,24 @@ function getInterpolatedY(t, seriesTimes, seriesValues, mapYFn) {
   return NaN;
 }
 
-function drawEvents(ctx, events, mapX, mapY, margin, width, height, times, btData, etData, rorData, mapRorY, totalDuration, plotWidth) {
+function drawEvents(
+  ctx,
+  events,
+  mapX,
+  mapY,
+  margin,
+  width,
+  height,
+  times,
+  btData,
+  etData,
+  rorData,
+  mapRorY,
+  totalDuration,
+  plotWidth,
+  labelBandTop,
+  labelBandBottom
+) {
   if (!events.length) return;
   ctx.save();
   ctx.fillStyle = '#f97316';
@@ -876,11 +914,16 @@ function drawEvents(ctx, events, mapX, mapY, margin, width, height, times, btDat
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
   const fontSize = 13;
-  const padding = 6;
-  const lineGap = 4;
-  const laneGap = 6;
-  const maxTopLanes = 3;
-  const maxBottomLanes = 3;
+  const padding = 2;
+  const lineGap = 16;
+  const laneCount = 3;
+  const laneBoxes = Array.from({ length: laneCount }, () => []);
+  const labelMinY = labelBandTop + 14;
+  const labelMaxY = labelBandBottom - 20;
+  const laneYs = Array.from({ length: laneCount }, (_, i) => {
+    if (laneCount === 1) return (labelMinY + labelMaxY) / 2;
+    return labelMinY + ((labelMaxY - labelMinY) * i) / (laneCount - 1);
+  });
 
   const measure = (text) => {
     const metrics = ctx.measureText(text);
@@ -892,53 +935,15 @@ function drawEvents(ctx, events, mapX, mapY, margin, width, height, times, btDat
     const topMetrics = measure(topLabel);
     const tempMetrics = measure(tempLabel);
     const maxWidth = Math.max(topMetrics.width, tempMetrics.width);
-    const totalHeight = topMetrics.height + tempMetrics.height + lineGap + padding * 2;
     const totalWidth = maxWidth + padding * 2;
-    return { topMetrics, tempMetrics, totalHeight, totalWidth };
+    const totalHeight = padding * 2 + topMetrics.height + tempMetrics.height + lineGap;
+    return { topMetrics, tempMetrics, totalWidth, totalHeight };
   };
 
   const clampX = (cx, halfWidth) => clamp(cx, halfWidth, width - halfWidth);
   const overlaps = (a, b) => !(a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y);
-
-  const buildPlacement = (e, dims, laneIdx, isTop, dx = 0) => {
-    const baseY = isTop
-      ? margin.top - dims.totalHeight - laneGap - laneIdx * (dims.totalHeight + laneGap)
-      : height - margin.bottom + laneGap + laneIdx * (dims.totalHeight + laneGap);
-    const cx = clampX(mapX(e.t) + dx, dims.totalWidth / 2, width - dims.totalWidth / 2);
-    const box = { x: cx - dims.totalWidth / 2, y: baseY, width: dims.totalWidth, height: dims.totalHeight };
-    const topY = baseY + padding;
-    const bottomY = topY + dims.topMetrics.height + lineGap;
-    return { cx, box, topY, bottomY, isTop };
-  };
-
-  const placeInLanes = (e, dims, lanes, isTop) => {
-    const offsets = [0, 12, -12];
-    let fallback = null;
-    for (let laneIdx = 0; laneIdx < lanes.length; laneIdx++) {
-      for (const dx of offsets) {
-        const placement = buildPlacement(e, dims, laneIdx, isTop, dx);
-        const collision = lanes[laneIdx].some((b) => overlaps(b, placement.box));
-        if (!collision) {
-          lanes[laneIdx].push(placement.box);
-          return placement;
-        }
-        const overlapScore = lanes[laneIdx].reduce((acc, b) => acc + (overlaps(b, placement.box) ? 1 : 0), 0);
-        if (!fallback || overlapScore < fallback.score) {
-          fallback = { placement, score: overlapScore, laneIdx };
-        }
-      }
-    }
-    if (fallback) {
-      lanes[fallback.laneIdx].push(fallback.placement.box);
-      return fallback.placement;
-    }
-    return null;
-  };
-
   const yBT = (t) => getInterpolatedY(t, times, btData, mapY);
   const ordered = [...events].sort((a, b) => a.t - b.t);
-  const topLanes = Array.from({ length: maxTopLanes }, () => []);
-  const bottomLanes = Array.from({ length: maxBottomLanes }, () => []);
   const placements = [];
 
   ordered.forEach((e) => {
@@ -952,30 +957,57 @@ function drawEvents(ctx, events, mapX, mapY, margin, width, height, times, btDat
     const tempLabel = Number.isFinite(e.bt) ? `${Math.round(e.bt)}°C` : '--°C';
     const dims = buildDimensions(topLabel, tempLabel);
 
-    let placement = placeInLanes(e, dims, topLanes, true);
-    if (!placement) {
-      placement = placeInLanes(e, dims, bottomLanes, false);
+    let chosen = null;
+    let fallback = null;
+    for (let laneIdx = 0; laneIdx < laneYs.length; laneIdx++) {
+      let yText1 = clamp(laneYs[laneIdx], labelMinY, labelMaxY);
+      let boxHeight = padding * 2 + dims.topMetrics.height + dims.tempMetrics.height + lineGap;
+      let boxY = yText1 - padding;
+      const overflow = boxY + boxHeight - (labelBandBottom - 2);
+      if (overflow > 0) {
+        yText1 = Math.max(labelMinY, yText1 - overflow);
+        boxY = yText1 - padding;
+      }
+      const yText2 = yText1 + 16;
+      const cx = clampX(x, dims.totalWidth / 2);
+      const box = { x: cx - dims.totalWidth / 2, y: boxY, width: dims.totalWidth, height: boxHeight };
+      const collision = laneBoxes[laneIdx].some((b) => overlaps(b, box));
+      if (!collision) {
+        laneBoxes[laneIdx].push(box);
+        chosen = { cx, box, topY: yText1, bottomY: yText2 };
+        break;
+      }
+      const overlapScore = laneBoxes[laneIdx].reduce((acc, b) => acc + (overlaps(b, box) ? 1 : 0), 0);
+      if (!fallback || overlapScore < fallback.score) {
+        fallback = { laneIdx, box, cx, topY: yText1, bottomY: yText2, score: overlapScore };
+      }
     }
-    if (!placement) return;
 
-    const guideX = placement.box.x + placement.box.width / 2;
-    const guideY = placement.box.y + placement.box.height / 2;
+    if (!chosen && fallback) {
+      laneBoxes[fallback.laneIdx].push(fallback.box);
+      chosen = { cx: fallback.cx, box: fallback.box, topY: fallback.topY, bottomY: fallback.bottomY };
+    }
+    if (!chosen) return;
+
+    const guideX = chosen.box.x + chosen.box.width / 2;
+    const guideY = chosen.box.y + chosen.box.height / 2;
     placements.push({
       e,
-      dims,
-      placement,
+      placement: chosen,
       guideX,
       guideY,
+      topLabel,
+      tempLabel,
     });
   });
 
   ctx.strokeStyle = 'rgba(100,116,139,0.6)';
   ctx.lineWidth = 1;
-  placements.forEach(({ e, placement, dims, guideX, guideY }) => {
+  placements.forEach(({ e, placement, topLabel, tempLabel }) => {
     const eventX = mapX(e.t);
     const eventY = yBT(e.t);
     ctx.beginPath();
-    ctx.moveTo(guideX, guideY);
+    ctx.moveTo(placement.box.x + placement.box.width / 2, placement.box.y + placement.box.height / 2);
     ctx.lineTo(eventX, eventY);
     ctx.stroke();
 
@@ -1000,8 +1032,8 @@ function drawEvents(ctx, events, mapX, mapY, margin, width, height, times, btDat
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    strokeFillText(ctx, `${formatTimeLabel(e.t)} ${e.label}`, placement.cx, placement.topY, '#0f172a');
-    strokeFillText(ctx, Number.isFinite(e.bt) ? `${Math.round(e.bt)}°C` : '--°C', placement.cx, placement.bottomY, '#0f172a');
+    strokeFillText(ctx, topLabel, placement.cx, placement.topY, '#0f172a');
+    strokeFillText(ctx, tempLabel, placement.cx, placement.bottomY, '#0f172a');
   });
   ctx.restore();
 }
