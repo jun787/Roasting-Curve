@@ -851,6 +851,8 @@ function drawEvents(ctx, events, mapX, mapY, margin, width, height) {
   ctx.font = '13px "Inter", system-ui, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'bottom';
+  const fontSize = 13;
+  const safeGap = 14;
   events.forEach((e) => {
     const x = mapX(e.t);
     const y = mapY(e.bt);
@@ -858,22 +860,54 @@ function drawEvents(ctx, events, mapX, mapY, margin, width, height) {
     ctx.arc(x, y, 4, 0, Math.PI * 2);
     ctx.fill();
 
+    const topLabel = `${formatTimeLabel(e.t)} ${e.label}`;
     const tempLabel = Number.isFinite(e.bt) ? `${Math.round(e.bt)}°C` : '--°C';
-    const labelText = `${formatTimeLabel(e.t)} ${e.label} ${tempLabel}`;
-    const metrics = ctx.measureText(labelText);
+    const topMetrics = ctx.measureText(topLabel);
+    const tempMetrics = ctx.measureText(tempLabel);
     let textX = x;
-    const half = metrics.width / 2;
+    const half = Math.max(topMetrics.width, tempMetrics.width) / 2;
     if (textX - half < margin.left) textX = margin.left + half;
     if (textX + half > width - margin.right) textX = width - margin.right - half;
 
-    let textY = y - 10;
-    let baseline = 'bottom';
-    if (textY < margin.top + 5) {
-      textY = y + 14;
-      baseline = 'top';
+    const baseOffset = Math.max(18, safeGap);
+    let topY = y - 10;
+    let bottomY = y + baseOffset;
+    if (topY < margin.top + 5) topY = y + baseOffset;
+    if (topY >= y) bottomY = topY + fontSize + 4;
+    if (bottomY > height - margin.bottom - 5) {
+      bottomY = y - baseOffset;
+      if (topY >= y) topY = y - baseOffset;
     }
-    ctx.textBaseline = baseline;
-    strokeFillText(ctx, labelText, textX, textY, '#0f172a');
+
+    ctx.textBaseline = topY < y ? 'bottom' : 'top';
+    strokeFillText(ctx, topLabel, textX, topY, '#0f172a');
+
+    const drawTempBelow = bottomY > y;
+    ctx.textBaseline = drawTempBelow ? 'top' : 'bottom';
+    if (drawTempBelow) {
+      const padding = 4;
+      const tempHeight = (tempMetrics.actualBoundingBoxAscent || fontSize) + (tempMetrics.actualBoundingBoxDescent || 0);
+      const rectWidth = tempMetrics.width + padding * 2;
+      const rectHeight = tempHeight + padding * 2;
+      const rectX = textX - rectWidth / 2;
+      const rectY = bottomY - padding;
+      ctx.save();
+      ctx.fillStyle = 'rgba(255,255,255,0.8)';
+      ctx.beginPath();
+      const radius = 4;
+      ctx.moveTo(rectX + radius, rectY);
+      ctx.lineTo(rectX + rectWidth - radius, rectY);
+      ctx.quadraticCurveTo(rectX + rectWidth, rectY, rectX + rectWidth, rectY + radius);
+      ctx.lineTo(rectX + rectWidth, rectY + rectHeight - radius);
+      ctx.quadraticCurveTo(rectX + rectWidth, rectY + rectHeight, rectX + rectWidth - radius, rectY + rectHeight);
+      ctx.lineTo(rectX + radius, rectY + rectHeight);
+      ctx.quadraticCurveTo(rectX, rectY + rectHeight, rectX, rectY + rectHeight - radius);
+      ctx.lineTo(rectX, rectY + radius);
+      ctx.quadraticCurveTo(rectX, rectY, rectX + radius, rectY);
+      ctx.fill();
+      ctx.restore();
+    }
+    strokeFillText(ctx, tempLabel, textX, bottomY, '#0f172a');
   });
   ctx.restore();
 }
