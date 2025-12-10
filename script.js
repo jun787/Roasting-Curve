@@ -683,7 +683,7 @@ async function renderPng({ samples, ror, rightMax, tempMax, events, phases, tota
   drawStepped(ctx, times, powerData, mapX, mapTempY, '#ef4444', [6, 4]);
   drawStepped(ctx, times, fanData, mapX, mapTempY, '#10b981', [4, 4]);
 
-  drawEvents(ctx, events, mapX, mapTempY, margin, cssWidth, cssHeight);
+  drawEvents(ctx, events, mapX, mapTempY, margin, cssWidth, cssHeight, times, btData, etData, ror, mapRorY, totalDuration, plotWidth);
   drawFooterText(ctx, cssWidth, cssHeight, margin, phases);
 
   ctx.save();
@@ -842,7 +842,31 @@ function drawStepped(ctx, times, values, mapX, mapY, color, dash) {
   ctx.restore();
 }
 
-function drawEvents(ctx, events, mapX, mapY, margin, width, height) {
+function getInterpolatedY(t, seriesTimes, seriesValues, mapYFn) {
+  if (!seriesTimes?.length || !mapYFn) return NaN;
+  let prevIdx = -1;
+  for (let i = 0; i < seriesTimes.length; i++) {
+    const ti = seriesTimes[i];
+    if (!Number.isFinite(ti)) continue;
+    const vi = seriesValues[i];
+    if (ti > t) {
+      if (prevIdx !== -1 && Number.isFinite(seriesValues[prevIdx]) && ti !== seriesTimes[prevIdx]) {
+        const t0 = seriesTimes[prevIdx];
+        const v0 = seriesValues[prevIdx];
+        const ratio = (t - t0) / (ti - t0);
+        return mapYFn(v0 + ratio * (vi - v0));
+      }
+      return Number.isFinite(vi) ? mapYFn(vi) : NaN;
+    }
+    if (Number.isFinite(vi)) prevIdx = i;
+  }
+  if (prevIdx !== -1 && Number.isFinite(seriesValues[prevIdx])) {
+    return mapYFn(seriesValues[prevIdx]);
+  }
+  return NaN;
+}
+
+function drawEvents(ctx, events, mapX, mapY, margin, width, height, times, btData, etData, rorData, mapRorY, totalDuration, plotWidth) {
   if (!events.length) return;
   ctx.save();
   ctx.fillStyle = '#f97316';
@@ -853,6 +877,60 @@ function drawEvents(ctx, events, mapX, mapY, margin, width, height) {
   ctx.textBaseline = 'bottom';
   const fontSize = 13;
   const safeGap = 14;
+  const hasEt = etData?.some(Number.isFinite);
+  const hasRor = rorData?.some((v) => Number.isFinite(v));
+  const thresholdPx = 6;
+  const padding = 4;
+  const samplePoints = (bbox) => {
+    const pts = [];
+    const { x, y, width: w, height: h } = bbox;
+    const x2 = x + w;
+    const y2 = y + h;
+    pts.push({ x: x + w / 2, y: y + h / 2 });
+    pts.push({ x, y });
+    pts.push({ x: x2, y });
+    pts.push({ x, y: y2 });
+    pts.push({ x: x2, y: y2 });
+    pts.push({ x: x + w / 2, y });
+    pts.push({ x: x + w / 2, y: y2 });
+    pts.push({ x, y: y + h / 2 });
+    pts.push({ x: x2, y: y + h / 2 });
+    return pts;
+  };
+
+  const yBT = (t) => getInterpolatedY(t, times, btData, mapY);
+  const yET = (t) => (hasEt ? getInterpolatedY(t, times, etData, mapY) : NaN);
+  const yROR = (t) => (hasRor ? getInterpolatedY(t, times, rorData, mapRorY) : NaN);
+
+  const measure = (text) => {
+    const metrics = ctx.measureText(text);
+    const h = (metrics.actualBoundingBoxAscent || fontSize) + (metrics.actualBoundingBoxDescent || 0);
+    return { width: metrics.width, height: h };
+  };
+
+  const buildBBox = (textX, yBase, widthVal, heightVal, above) => ({
+    x: textX - widthVal / 2 - padding,
+    y: above ? yBase - heightVal - padding : yBase - padding,
+    width: widthVal + padding * 2,
+    height: heightVal + padding * 2,
+  });
+
+  const collisionScore = (bbox) => {
+    let score = 0;
+    const pts = samplePoints(bbox);
+    for (const pt of pts) {
+      if (pt.x < margin.left || pt.x > width - margin.right) continue;
+      if (pt.y < margin.top || pt.y > height - margin.bottom) continue;
+      const t = ((pt.x - margin.left) / plotWidth) * totalDuration;
+      const btY = yBT(t);
+      const etY = yET(t);
+      const rorY = yROR(t);
+      if (Number.isFinite(btY) && Math.abs(pt.y - btY) < thresholdPx) score += 1;
+      if (Number.isFinite(etY) && Math.abs(pt.y - etY) < thresholdPx) score += 1;
+      if (Number.isFinite(rorY) && Math.abs(pt.y - rorY) < thresholdPx) score += 1.2;
+    }
+    return score;
+  };
   events.forEach((e) => {
     const x = mapX(e.t);
     const y = mapY(e.bt);
@@ -862,46 +940,61 @@ function drawEvents(ctx, events, mapX, mapY, margin, width, height) {
 
     const topLabel = `${formatTimeLabel(e.t)} ${e.label}`;
     const tempLabel = Number.isFinite(e.bt) ? `${Math.round(e.bt)}°C` : '--°C';
-    const topMetrics = ctx.measureText(topLabel);
-    const tempMetrics = ctx.measureText(tempLabel);
-    let textX = x;
+    const topMetrics = measure(topLabel);
+    const tempMetrics = measure(tempLabel);
     const half = Math.max(topMetrics.width, tempMetrics.width) / 2;
-    if (textX - half < margin.left) textX = margin.left + half;
-    if (textX + half > width - margin.right) textX = width - margin.right - half;
 
-    const baseOffset = Math.max(18, safeGap);
-    let topY = y - 10;
-    let bottomY = y + baseOffset;
-    if (topY < margin.top + 5) topY = y + baseOffset;
-    if (topY >= y) bottomY = topY + fontSize + 4;
-    if (bottomY > height - margin.bottom - 5) {
-      bottomY = y - baseOffset;
-      if (topY >= y) topY = y - baseOffset;
-    }
+    const candidates = [
+      { dx: 0, topOffset: -10, bottomOffset: safeGap + fontSize },
+      { dx: 0, topOffset: safeGap + fontSize, bottomOffset: -10 },
+      { dx: -24, topOffset: -10, bottomOffset: safeGap + fontSize },
+      { dx: 24, topOffset: -10, bottomOffset: safeGap + fontSize },
+      { dx: -24, topOffset: safeGap + fontSize, bottomOffset: -10 },
+      { dx: 24, topOffset: safeGap + fontSize, bottomOffset: -10 },
+    ];
 
-    ctx.textBaseline = topY < y ? 'bottom' : 'top';
+    let best = null;
+    candidates.forEach((c) => {
+      let textX = x + c.dx;
+      if (textX - half < margin.left) textX = margin.left + half;
+      if (textX + half > width - margin.right) textX = width - margin.right - half;
+
+      let topY = y + c.topOffset;
+      let bottomY = y + c.bottomOffset;
+      if (topY < margin.top + 5) topY = y + safeGap + fontSize;
+      if (bottomY > height - margin.bottom - 5) bottomY = y - safeGap - fontSize;
+      const topAbove = topY < y;
+      const tempBelow = bottomY > y;
+      const topBox = buildBBox(textX, topY, topMetrics.width, topMetrics.height, topAbove);
+      const tempBox = buildBBox(textX, bottomY, tempMetrics.width, tempMetrics.height, !tempBelow);
+      const score = collisionScore(topBox) + collisionScore(tempBox);
+      const dist = Math.abs(textX - x) + Math.abs(topY - y) + Math.abs(bottomY - y);
+      if (!best || score < best.score || (score === best.score && dist < best.dist)) {
+        best = { textX, topY, bottomY, topAbove, tempBelow, topBox, tempBox, score, dist };
+      }
+    });
+
+    if (!best) return;
+    const { textX, topY, bottomY, topAbove, tempBelow, tempBox } = best;
+
+    ctx.textBaseline = topAbove ? 'bottom' : 'top';
     strokeFillText(ctx, topLabel, textX, topY, '#0f172a');
 
-    const drawTempBelow = bottomY > y;
-    ctx.textBaseline = drawTempBelow ? 'top' : 'bottom';
-    if (drawTempBelow) {
-      const padding = 4;
-      const tempHeight = (tempMetrics.actualBoundingBoxAscent || fontSize) + (tempMetrics.actualBoundingBoxDescent || 0);
-      const rectWidth = tempMetrics.width + padding * 2;
-      const rectHeight = tempHeight + padding * 2;
-      const rectX = textX - rectWidth / 2;
-      const rectY = bottomY - padding;
+    ctx.textBaseline = tempBelow ? 'top' : 'bottom';
+    if (tempBelow) {
+      const rectX = tempBox.x;
+      const rectY = tempBox.y;
       ctx.save();
       ctx.fillStyle = 'rgba(255,255,255,0.8)';
       ctx.beginPath();
       const radius = 4;
       ctx.moveTo(rectX + radius, rectY);
-      ctx.lineTo(rectX + rectWidth - radius, rectY);
-      ctx.quadraticCurveTo(rectX + rectWidth, rectY, rectX + rectWidth, rectY + radius);
-      ctx.lineTo(rectX + rectWidth, rectY + rectHeight - radius);
-      ctx.quadraticCurveTo(rectX + rectWidth, rectY + rectHeight, rectX + rectWidth - radius, rectY + rectHeight);
-      ctx.lineTo(rectX + radius, rectY + rectHeight);
-      ctx.quadraticCurveTo(rectX, rectY + rectHeight, rectX, rectY + rectHeight - radius);
+      ctx.lineTo(rectX + tempBox.width - radius, rectY);
+      ctx.quadraticCurveTo(rectX + tempBox.width, rectY, rectX + tempBox.width, rectY + radius);
+      ctx.lineTo(rectX + tempBox.width, rectY + tempBox.height - radius);
+      ctx.quadraticCurveTo(rectX + tempBox.width, rectY + tempBox.height, rectX + tempBox.width - radius, rectY + tempBox.height);
+      ctx.lineTo(rectX + radius, rectY + tempBox.height);
+      ctx.quadraticCurveTo(rectX, rectY + tempBox.height, rectX, rectY + tempBox.height - radius);
       ctx.lineTo(rectX, rectY + radius);
       ctx.quadraticCurveTo(rectX, rectY, rectX + radius, rectY);
       ctx.fill();
