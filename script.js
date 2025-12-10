@@ -876,19 +876,10 @@ function drawEvents(ctx, events, mapX, mapY, margin, width, height, times, btDat
   ctx.textAlign = 'center';
   ctx.textBaseline = 'bottom';
   const fontSize = 13;
-  const safeGap = 14;
+  const padding = 4;
   const hasEt = etData?.some(Number.isFinite);
   const hasRor = rorData?.some((v) => Number.isFinite(v));
   const thresholdPx = 7;
-  const padding = 4;
-  const candidateOffsets = [
-    { dx: 0, dy: -10 },
-    { dx: 0, dy: safeGap + fontSize },
-    { dx: -24, dy: -10 },
-    { dx: 24, dy: -10 },
-    { dx: -24, dy: safeGap + fontSize },
-    { dx: 24, dy: safeGap + fontSize },
-  ];
   const samplePoints = (bbox) => {
     const pts = [];
     const { x, y, width: w, height: h } = bbox;
@@ -909,13 +900,6 @@ function drawEvents(ctx, events, mapX, mapY, margin, width, height, times, btDat
   const yBT = (t) => getInterpolatedY(t, times, btData, mapY);
   const yET = (t) => (hasEt ? getInterpolatedY(t, times, etData, mapY) : NaN);
   const yROR = (t) => (hasRor ? getInterpolatedY(t, times, rorData, mapRorY) : NaN);
-
-  const boxesOverlap = (a, b) =>
-    a && b &&
-    a.x < b.x + b.width &&
-    a.x + a.width > b.x &&
-    a.y < b.y + b.height &&
-    a.y + a.height > b.y;
 
   const measure = (text) => {
     const metrics = ctx.measureText(text);
@@ -957,72 +941,70 @@ function drawEvents(ctx, events, mapX, mapY, margin, width, height, times, btDat
     const tempLabel = Number.isFinite(e.bt) ? `${Math.round(e.bt)}°C` : '--°C';
     const topMetrics = measure(topLabel);
     const tempMetrics = measure(tempLabel);
-    const half = Math.max(topMetrics.width, tempMetrics.width) / 2;
+    const maxHalf = Math.max(topMetrics.width, tempMetrics.width) / 2;
 
-    const evaluatePosition = (dx, dy, metrics, preferAbove) => {
-      let textX = x + dx;
-      if (textX - half < margin.left) textX = margin.left + half;
-      if (textX + half > width - margin.right) textX = width - margin.right - half;
+    const candidates = [
+      { dx: 0, topY: y - 12, bottomY: y + 6 },
+      { dx: 12, topY: y - 12, bottomY: y + 6 },
+      { dx: -12, topY: y - 12, bottomY: y + 6 },
+      { dx: 0, topY: y + 18, bottomY: y + 36 },
+      { dx: 12, topY: y + 18, bottomY: y + 36 },
+      { dx: -12, topY: y + 18, bottomY: y + 36 },
+    ];
 
-      let yPos = y + dy;
-      if (preferAbove && yPos - metrics.height - padding < margin.top) yPos = y + safeGap + fontSize;
-      if (!preferAbove && yPos + metrics.height + padding > height - margin.bottom) yPos = y - safeGap - fontSize;
-      const above = yPos < y;
-      const box = buildBBox(textX, yPos, metrics.width, metrics.height, above);
-      const score = collisionScore(box);
-      const dist = Math.abs(textX - x) + Math.abs(yPos - y);
-      return { textX, yPos, above, box, score, dist };
+    const evaluateGroup = (cand) => {
+      let textX = x + cand.dx;
+      if (textX - maxHalf < margin.left) textX = margin.left + maxHalf;
+      if (textX + maxHalf > width - margin.right) textX = width - margin.right - maxHalf;
+
+      const topAbove = cand.topY < y;
+      const bottomAbove = cand.bottomY < y;
+      const topBox = buildBBox(textX, cand.topY, topMetrics.width, topMetrics.height, topAbove);
+      const bottomBox = buildBBox(textX, cand.bottomY, tempMetrics.width, tempMetrics.height, bottomAbove);
+
+      let penalty = 0;
+      if (topBox.y < margin.top) penalty += 2;
+      if (bottomBox.y + bottomBox.height > height - margin.bottom) penalty += 2;
+
+      const score = collisionScore(topBox) + collisionScore(bottomBox) + penalty;
+      const dist = Math.abs(textX - x) + Math.abs(cand.topY - y) + Math.abs(cand.bottomY - y);
+      return { score, dist, textX, topY: cand.topY, bottomY: cand.bottomY, topBox, bottomBox, bottomAbove };
     };
 
-    let bestTop = null;
-    candidateOffsets.forEach((c) => {
-      const res = evaluatePosition(c.dx, c.dy, topMetrics, true);
-      if (!bestTop || res.score < bestTop.score || (res.score === bestTop.score && res.dist < bestTop.dist)) {
-        bestTop = res;
+    let best = null;
+    candidates.forEach((c) => {
+      const res = evaluateGroup(c);
+      if (!best || res.score < best.score || (res.score === best.score && res.dist < best.dist)) {
+        best = res;
       }
     });
 
-    let bestTemp = null;
-    candidateOffsets.forEach((c) => {
-      const res = evaluatePosition(c.dx, c.dy, tempMetrics, false);
-      let score = res.score;
-      if (boxesOverlap(res.box, bestTop?.box)) score += 2;
-      if (score > 0 && Math.abs(c.dx) === 0) score += 0.5;
-      res.score = score;
-      if (!bestTemp || res.score < bestTemp.score || (res.score === bestTemp.score && res.dist < bestTemp.dist)) {
-        bestTemp = res;
-      }
-    });
+    if (!best) return;
 
-    if (!bestTop || !bestTemp) return;
+    ctx.textBaseline = best.topY < y ? 'bottom' : 'top';
+    strokeFillText(ctx, topLabel, best.textX, best.topY, '#0f172a');
 
-    const { textX: topX, yPos: topY, above: topAbove } = bestTop;
-    const { textX: tempX, yPos: tempY, above: tempAbove, box: tempBox, score: tempScore } = bestTemp;
-
-    ctx.textBaseline = topAbove ? 'bottom' : 'top';
-    strokeFillText(ctx, topLabel, topX, topY, '#0f172a');
-
-    ctx.textBaseline = tempAbove ? 'bottom' : 'top';
-    if (!tempAbove) {
-      const rectX = tempBox.x;
-      const rectY = tempBox.y;
+    ctx.textBaseline = best.bottomAbove ? 'bottom' : 'top';
+    if (!best.bottomAbove) {
+      const rectX = best.bottomBox.x;
+      const rectY = best.bottomBox.y;
       ctx.save();
-      ctx.fillStyle = tempScore > 0 ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.8)';
+      ctx.fillStyle = best.score > 0 ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.8)';
       ctx.beginPath();
       const radius = 4;
       ctx.moveTo(rectX + radius, rectY);
-      ctx.lineTo(rectX + tempBox.width - radius, rectY);
-      ctx.quadraticCurveTo(rectX + tempBox.width, rectY, rectX + tempBox.width, rectY + radius);
-      ctx.lineTo(rectX + tempBox.width, rectY + tempBox.height - radius);
-      ctx.quadraticCurveTo(rectX + tempBox.width, rectY + tempBox.height, rectX + tempBox.width - radius, rectY + tempBox.height);
-      ctx.lineTo(rectX + radius, rectY + tempBox.height);
-      ctx.quadraticCurveTo(rectX, rectY + tempBox.height, rectX, rectY + tempBox.height - radius);
+      ctx.lineTo(rectX + best.bottomBox.width - radius, rectY);
+      ctx.quadraticCurveTo(rectX + best.bottomBox.width, rectY, rectX + best.bottomBox.width, rectY + radius);
+      ctx.lineTo(rectX + best.bottomBox.width, rectY + best.bottomBox.height - radius);
+      ctx.quadraticCurveTo(rectX + best.bottomBox.width, rectY + best.bottomBox.height, rectX + best.bottomBox.width - radius, rectY + best.bottomBox.height);
+      ctx.lineTo(rectX + radius, rectY + best.bottomBox.height);
+      ctx.quadraticCurveTo(rectX, rectY + best.bottomBox.height, rectX, rectY + best.bottomBox.height - radius);
       ctx.lineTo(rectX, rectY + radius);
       ctx.quadraticCurveTo(rectX, rectY, rectX + radius, rectY);
       ctx.fill();
       ctx.restore();
     }
-    strokeFillText(ctx, tempLabel, tempX, tempY, '#0f172a');
+    strokeFillText(ctx, tempLabel, best.textX, best.bottomY, '#0f172a');
   });
   ctx.restore();
 }
