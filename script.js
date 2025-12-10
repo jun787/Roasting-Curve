@@ -642,9 +642,6 @@ async function renderPng({ samples, ror, rightMax, tempMax, events, phases, tota
   const cssWidth = 1600;
   const cssHeight = 900;
   const titleBandHeight = 36;
-  const labelBandHeight = 48;
-  const labelBandTop = titleBandHeight;
-  const labelBandBottom = titleBandHeight + labelBandHeight;
   const dpr = window.devicePixelRatio || 1;
   chartCanvas.width = cssWidth * dpr;
   chartCanvas.height = cssHeight * dpr;
@@ -662,7 +659,7 @@ async function renderPng({ samples, ror, rightMax, tempMax, events, phases, tota
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, cssWidth, cssHeight);
 
-  const margin = { top: titleBandHeight + labelBandHeight + 16, right: 90, bottom: 150, left: 90 };
+  const margin = { top: titleBandHeight + 44, right: 90, bottom: 150, left: 90 };
   const plotWidth = cssWidth - margin.left - margin.right;
   const plotHeight = cssHeight - margin.top - margin.bottom;
 
@@ -702,8 +699,7 @@ async function renderPng({ samples, ror, rightMax, tempMax, events, phases, tota
     mapRorY,
     totalDuration,
     plotWidth,
-    labelBandTop,
-    labelBandBottom
+    tempMax
   );
   drawFooterText(ctx, cssWidth, cssHeight, margin, phases);
 
@@ -887,24 +883,7 @@ function getInterpolatedY(t, seriesTimes, seriesValues, mapYFn) {
   return NaN;
 }
 
-function drawEvents(
-  ctx,
-  events,
-  mapX,
-  mapY,
-  margin,
-  width,
-  height,
-  times,
-  btData,
-  etData,
-  rorData,
-  mapRorY,
-  totalDuration,
-  plotWidth,
-  labelBandTop,
-  labelBandBottom
-) {
+function drawEvents(ctx, events, mapX, mapY, margin, width, height, times, btData, etData, rorData, mapRorY, totalDuration, plotWidth, tempMax) {
   if (!events.length) return;
   ctx.save();
   ctx.fillStyle = '#f97316';
@@ -916,14 +895,18 @@ function drawEvents(
   const fontSize = 13;
   const padding = 2;
   const lineGap = 16;
+  const yBandTop = margin.top + 6;
+  const yBandBottom = Math.min(margin.top + 42, margin.top + (height - margin.top - margin.bottom) - 4);
+  const anchorY = clamp(mapY(tempMax - 10), yBandTop, yBandBottom - lineGap);
   const laneCount = 3;
-  const laneBoxes = Array.from({ length: laneCount }, () => []);
-  const labelMinY = labelBandTop + 14;
-  const labelMaxY = labelBandBottom - 20;
-  const laneYs = Array.from({ length: laneCount }, (_, i) => {
-    if (laneCount === 1) return (labelMinY + labelMaxY) / 2;
-    return labelMinY + ((labelMaxY - labelMinY) * i) / (laneCount - 1);
-  });
+  const candidates = [];
+  for (let i = 0; i < laneCount; i++) {
+    const yCandidate = clamp(yBandTop + i * 18, yBandTop, yBandBottom - lineGap);
+    candidates.push(yCandidate);
+  }
+  const laneYs = [...new Set(candidates)].sort((a, b) => Math.abs(a - anchorY) - Math.abs(b - anchorY));
+  if (!laneYs.length) laneYs.push(anchorY);
+  const laneBoxes = Array.from({ length: laneYs.length }, () => []);
 
   const measure = (text) => {
     const metrics = ctx.measureText(text);
@@ -940,7 +923,8 @@ function drawEvents(
     return { topMetrics, tempMetrics, totalWidth, totalHeight };
   };
 
-  const clampX = (cx, halfWidth) => clamp(cx, halfWidth, width - halfWidth);
+  const clampX = (cx, halfWidth) =>
+    clamp(cx, margin.left + padding + halfWidth, width - margin.right - padding - halfWidth);
   const overlaps = (a, b) => !(a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y);
   const yBT = (t) => getInterpolatedY(t, times, btData, mapY);
   const ordered = [...events].sort((a, b) => a.t - b.t);
@@ -960,15 +944,12 @@ function drawEvents(
     let chosen = null;
     let fallback = null;
     for (let laneIdx = 0; laneIdx < laneYs.length; laneIdx++) {
-      let yText1 = clamp(laneYs[laneIdx], labelMinY, labelMaxY);
-      let boxHeight = padding * 2 + dims.topMetrics.height + dims.tempMetrics.height + lineGap;
-      let boxY = yText1 - padding;
-      const overflow = boxY + boxHeight - (labelBandBottom - 2);
-      if (overflow > 0) {
-        yText1 = Math.max(labelMinY, yText1 - overflow);
-        boxY = yText1 - padding;
-      }
-      const yText2 = yText1 + 16;
+      let yText1 = clamp(laneYs[laneIdx], yBandTop, yBandBottom - lineGap);
+      const boxHeight = padding * 2 + dims.topMetrics.height + dims.tempMetrics.height + lineGap;
+      if (!Number.isFinite(yText1)) yText1 = anchorY;
+      yText1 = clamp(yText1, yBandTop, yBandBottom - lineGap);
+      const boxY = yText1 - padding;
+      const yText2 = yText1 + lineGap;
       const cx = clampX(x, dims.totalWidth / 2);
       const box = { x: cx - dims.totalWidth / 2, y: boxY, width: dims.totalWidth, height: boxHeight };
       const collision = laneBoxes[laneIdx].some((b) => overlaps(b, box));
