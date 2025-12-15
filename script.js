@@ -581,7 +581,13 @@ function extractEvents(samples) {
 
 function buildPhases(samples, events) {
   const totalTime = samples[samples.length - 1]?.t ?? 0;
-  const yellow = events.find((e) => e.label === 'YELLOW')?.t ?? totalTime / 3;
+  const yellowEvent = events.find((e) => e.label === 'YELLOW');
+  const yellowFallback = findYellowCrossing(samples);
+  const yellow = Number.isFinite(yellowEvent?.t)
+    ? yellowEvent.t
+    : Number.isFinite(yellowFallback?.t)
+      ? yellowFallback.t
+      : totalTime / 3;
   const firstCrack = events.find((e) => e.label === '1st CRACK')?.t ?? (totalTime * 2) / 3;
 
   const a = clampTime(yellow, totalTime);
@@ -593,6 +599,24 @@ function buildPhases(samples, events) {
   const dropBt = samples[samples.length - 1]?.bt ?? 0;
   const dropText = `drop ${formatTimeLabel(totalTime)} / BT ${Math.round(dropBt)}°C`;
   return { display, dropText };
+}
+
+function findYellowCrossing(samples) {
+  for (let i = 1; i < samples.length; i++) {
+    const prev = samples[i - 1];
+    const curr = samples[i];
+    if (!Number.isFinite(prev?.bt) || !Number.isFinite(curr?.bt)) continue;
+    if (!Number.isFinite(prev?.t) || !Number.isFinite(curr?.t)) continue;
+    if (prev.bt < 150 && curr.bt >= 150 && curr.bt !== prev.bt) {
+      const ratio = (150 - prev.bt) / (curr.bt - prev.bt);
+      if (!Number.isFinite(ratio)) continue;
+      const tYellow = prev.t + ratio * (curr.t - prev.t);
+      if (Number.isFinite(tYellow)) {
+        return { t: tYellow, bt: 150 };
+      }
+    }
+  }
+  return null;
 }
 
 function clampTime(val, total) {
@@ -895,9 +919,9 @@ function drawEvents(ctx, events, mapX, mapY, margin, width, height, times, btDat
   const fontSize = 13;
   const padding = 2;
   const lineGap = 16;
-  const yBandTop = margin.top + 2;
-  const yBandBottom = Math.min(margin.top + 28, margin.top + (height - margin.top - margin.bottom) - 4);
-  const anchorY = clamp(mapY(tempMax - 1), yBandTop, yBandBottom - lineGap);
+  const yBandTop = margin.top + 6;
+  const yBandBottom = Math.min(margin.top + 42, margin.top + (height - margin.top - margin.bottom) - 4);
+  const anchorY = clamp(mapY(tempMax - 10), yBandTop, yBandBottom - lineGap);
   const laneCount = 3;
   const candidates = [];
   for (let i = 0; i < laneCount; i++) {
