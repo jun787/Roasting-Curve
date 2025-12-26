@@ -595,7 +595,10 @@ function buildPhases(samples, events) {
   const c = clampTime(totalTime - firstCrack, totalTime);
 
   const toPct = (val) => (totalTime ? Math.round((val / totalTime) * 100) : 0);
-  const display = `A ${toPct(a)}% ${formatTimeLabel(a)}｜B ${toPct(b)}% ${formatTimeLabel(b)}｜C ${toPct(c)}% ${formatTimeLabel(c)}`;
+  const displayBase = `A ${toPct(a)}% ${formatTimeLabel(a)}｜B ${toPct(b)}% ${formatTimeLabel(b)}｜C ${toPct(c)}% ${formatTimeLabel(c)}`;
+  const kInfo = computeK(samples, events);
+  const kText = Number.isFinite(kInfo?.k) ? `｜K ${kInfo.k.toFixed(3)}` : '｜K -';
+  const display = `${displayBase}${kText}`;
   const dropBt = samples[samples.length - 1]?.bt ?? 0;
   const dropText = `drop ${formatTimeLabel(totalTime)} / BT ${Math.round(dropBt)}°C`;
   return { display, dropText };
@@ -619,6 +622,85 @@ function findYellowCrossing(samples) {
   return null;
 }
 
+function getInterpolatedValueAt(t, times, values) {
+  if (!times?.length || !values?.length) return NaN;
+  let prevIdx = -1;
+  for (let i = 0; i < times.length; i++) {
+    const ti = times[i];
+    const vi = values[i];
+    if (!Number.isFinite(ti)) continue;
+    if (ti > t) {
+      if (prevIdx !== -1 && Number.isFinite(values[prevIdx]) && ti !== times[prevIdx]) {
+        const t0 = times[prevIdx];
+        const v0 = values[prevIdx];
+        const ratio = (t - t0) / (ti - t0);
+        return v0 + ratio * (vi - v0);
+      }
+      return Number.isFinite(vi) ? vi : NaN;
+    }
+    if (Number.isFinite(vi)) prevIdx = i;
+  }
+  if (prevIdx !== -1 && Number.isFinite(values[prevIdx])) {
+    return values[prevIdx];
+  }
+  return NaN;
+}
+
+function computeK(samples, events) {
+  if (!samples?.length || !events?.length) return null;
+  const fcEvent = events.find((e) => e.label === '1st CRACK');
+  if (!fcEvent || !Number.isFinite(fcEvent.t)) return null;
+
+  const times = samples.map((s) => s.t);
+  const btVals = samples.map((s) => s.bt);
+  const t_fc = fcEvent.t;
+  const t_drop = times[times.length - 1];
+  const bt_drop = btVals[btVals.length - 1];
+  const bt_fc = getInterpolatedValueAt(t_fc, times, btVals);
+
+  if (!Number.isFinite(t_drop) || !Number.isFinite(bt_drop) || !Number.isFinite(bt_fc)) return null;
+
+  const deltaBt = bt_drop - bt_fc;
+  const c = (t_drop - t_fc) / 60;
+  if (!Number.isFinite(deltaBt) || !Number.isFinite(c) || deltaBt <= 0 || c <= 0) return null;
+
+  let integral = 0;
+  let prevT = t_fc;
+  let prevBt = bt_fc;
+  let integrated = false;
+
+  for (let i = 0; i < times.length; i++) {
+    const t = times[i];
+    const bt = btVals[i];
+    if (!Number.isFinite(t) || !Number.isFinite(bt) || t < t_fc) continue;
+    const dtMin = (t - prevT) / 60;
+    const y0 = prevBt - bt_fc;
+    const y1 = bt - bt_fc;
+    if (dtMin > 0 && Number.isFinite(y0) && Number.isFinite(y1)) {
+      integral += 0.5 * (y0 + y1) * dtMin;
+      integrated = true;
+    }
+    prevT = t;
+    prevBt = bt;
+  }
+
+  if (prevT < t_drop && Number.isFinite(prevBt)) {
+    const dtMin = (t_drop - prevT) / 60;
+    const y0 = prevBt - bt_fc;
+    const y1 = bt_drop - bt_fc;
+    if (dtMin > 0 && Number.isFinite(y0) && Number.isFinite(y1)) {
+      integral += 0.5 * (y0 + y1) * dtMin;
+      integrated = true;
+    }
+  }
+
+  if (!integrated) return null;
+  const denom = 0.5 * deltaBt * c;
+  if (!Number.isFinite(denom) || denom === 0) return null;
+  const k = integral / denom;
+  return Number.isFinite(k) ? { k } : null;
+}
+
 function clampTime(val, total) {
   if (!Number.isFinite(val) || val < 0) return 0;
   if (val > total) return total;
@@ -633,14 +715,11 @@ function formatTimeLabel(seconds) {
 }
 
 function renderMeta(prepared, headers) {
-  const formatVal = (val, digits = 2) => (Number.isFinite(val) ? val.toFixed(digits) : 'NaN');
   const warnings = [];
   if (prepared.totalTime < 30 || prepared.sampleCount < 30) {
     warnings.push('資料時間軸可能解析異常');
   }
-  const warningText = warnings.length ? `｜警告：${warnings.join('；')}` : '';
-  metaEl.textContent =
-    `資料點：${prepared.totalRecords}｜有效資料點：${prepared.samples.length}｜timeUnit=${prepared.timeUnit}｜medianDt=${formatVal(prepared.medianDt)}｜maxTime=${formatVal(prepared.maxTime)}｜rightMax=${prepared.rightMax}｜tempMax=${prepared.tempMax}｜maxPositiveRoR=${formatVal(prepared.maxPositiveRoR)}｜baseTime=${formatVal(prepared.baseTime)}｜totalTime=${formatVal(prepared.totalTime)}｜firstTime=${formatVal(prepared.firstTime)}｜lastTime=${formatVal(prepared.lastTime)}｜sampleCount=${prepared.sampleCount}｜headerRowIndex=${prepared.headerRowIndex}｜timeHeaderName=${prepared.timeHeaderName ?? 'N/A'}｜btHeaderName=${prepared.btHeaderName ?? 'N/A'}｜timeUniqueCount=${formatVal(prepared.timeUniqueCount, 0)}｜timeRange=${formatVal(prepared.timeRange)}｜positiveDtRatio=${formatVal(prepared.positiveDtRatio)}${warningText}｜欄位：${headers.join(', ')}`;
+  metaEl.textContent = warnings.length ? `警告：${warnings.join('；')}` : '';
 }
 
 function niceTimeStep(totalTime) {
