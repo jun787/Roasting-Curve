@@ -7,6 +7,9 @@ const phaseTextEl = document.getElementById('phase-text');
 const dropTextEl = document.getElementById('drop-text');
 const downloadBtn = document.getElementById('download');
 const shareBtn = document.getElementById('share');
+let plotState = null;
+let isDragging = false;
+let tooltipEl = null;
 
 let currentBlobUrl = null;
 let currentChartTitle = 'roast-curve';
@@ -14,6 +17,7 @@ let lastPngBlob = null;
 let lastFileBaseName = 'roast-curve';
 
 ensureEnvironment();
+setupPointerInteractions();
 if (document.body) {
   document.body.style.backgroundColor = '#0f172a';
 }
@@ -813,6 +817,28 @@ async function renderPng({ samples, ror, rightMax, tempMax, events, phases, tota
   strokeFillText(ctx, chartTitle || 'roast-curve', cssWidth / 2, 24, '#0f172a');
   ctx.restore();
 
+  const baseCanvas = document.createElement('canvas');
+  baseCanvas.width = chartCanvas.width;
+  baseCanvas.height = chartCanvas.height;
+  const baseCtx = baseCanvas.getContext('2d');
+  baseCtx.drawImage(chartCanvas, 0, 0);
+  plotState = {
+    samples,
+    ror,
+    events,
+    phases,
+    margin,
+    plotWidth,
+    plotHeight,
+    tempMax,
+    rightMax,
+    totalDuration,
+    width: cssWidth,
+    height: cssHeight,
+    dpr,
+    baseCanvas,
+  };
+
   const blob = await new Promise((resolve) => chartCanvas.toBlob(resolve, 'image/png'));
   if (blob) {
     return { blob, url: URL.createObjectURL(blob) };
@@ -1134,4 +1160,171 @@ function drawFooterText(ctx, width, height, margin, phases) {
   ctx.font = '15px "Inter", system-ui, sans-serif';
   strokeFillText(ctx, phases.dropText, center, height - margin.bottom + 96, '#334155');
   ctx.restore();
+}
+
+function setupPointerInteractions() {
+  if (!chartCanvas) return;
+  chartCanvas.addEventListener('pointerdown', (evt) => {
+    if (!plotState) return;
+    isDragging = true;
+    chartCanvas.setPointerCapture(evt.pointerId);
+    handlePointerMove(evt);
+  });
+  chartCanvas.addEventListener('pointermove', (evt) => {
+    if (!isDragging) return;
+    handlePointerMove(evt);
+  });
+  chartCanvas.addEventListener('pointerup', (evt) => {
+    if (!isDragging) return;
+    isDragging = false;
+    if (chartCanvas.hasPointerCapture(evt.pointerId)) {
+      chartCanvas.releasePointerCapture(evt.pointerId);
+    }
+  });
+  chartCanvas.addEventListener('pointercancel', (evt) => {
+    if (!isDragging) return;
+    isDragging = false;
+    if (chartCanvas.hasPointerCapture(evt.pointerId)) {
+      chartCanvas.releasePointerCapture(evt.pointerId);
+    }
+  });
+}
+
+function handlePointerMove(evt) {
+  if (!plotState) return;
+  const { margin, plotWidth, plotHeight, totalDuration, samples, ror, tempMax, dpr, baseCanvas, width, height } = plotState;
+  if (!margin || !plotWidth || !plotHeight || !samples?.length) return;
+  const rect = chartCanvas.getBoundingClientRect();
+  const scaleX = chartCanvas.width / rect.width;
+  const scaleY = chartCanvas.height / rect.height;
+  const canvasX = (evt.clientX - rect.left) * scaleX;
+  const canvasY = (evt.clientY - rect.top) * scaleY;
+  const cssX = canvasX / (dpr || 1);
+  const cssY = canvasY / (dpr || 1);
+  const clampedX = clamp(cssX, margin.left, width - margin.right);
+  if (cssX < margin.left || cssX > width - margin.right || cssY < margin.top || cssY > height - margin.bottom) {
+    if (!isDragging) return;
+  }
+  const tClick = clamp(((clampedX - margin.left) / plotWidth) * totalDuration, 0, totalDuration);
+  const nearestIdx = findNearestSampleIndex(samples, tClick);
+  if (nearestIdx === -1) return;
+  const sample = samples[nearestIdx];
+  const maps = getPlotMaps(plotState);
+  if (!maps) return;
+  const ctx = chartCanvas.getContext('2d');
+  restoreBaseImage(ctx, baseCanvas);
+
+  const xCursor = maps.mapX(sample.t);
+  ctx.save();
+  ctx.strokeStyle = 'rgba(100,116,139,0.8)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(xCursor, margin.top);
+  ctx.lineTo(xCursor, height - margin.bottom);
+  ctx.stroke();
+  ctx.restore();
+
+  drawCursorPoint(ctx, xCursor, maps.mapTempY(sample.bt), '#f97316');
+  if (Number.isFinite(sample.et)) {
+    drawCursorPoint(ctx, xCursor, maps.mapTempY(sample.et), '#94a3b8');
+  }
+  if (Number.isFinite(ror[nearestIdx])) {
+    drawCursorPoint(ctx, xCursor, maps.mapRorY(ror[nearestIdx]), '#3b82f6');
+  }
+
+  const tooltip = getTooltip();
+  const eventLabel = sample.event || plotState.events.find((e) => e.idx === nearestIdx)?.label || '';
+  const timeText = `時間 ${formatTimeLabel(sample.t)}`;
+  const btText = `BT ${Number.isFinite(sample.bt) ? Math.round(sample.bt) : '--'}°C`;
+  const etText = `ET ${Number.isFinite(sample.et) ? Math.round(sample.et) : '--'}°C`;
+  const rorText = `RoR ${Number.isFinite(ror[nearestIdx]) ? ror[nearestIdx].toFixed(1) : '--'} °C/分`;
+  const powerText = `火力 ${Number.isFinite(sample.power) ? sample.power : '--'}`;
+  const fanText = `風門 ${Number.isFinite(sample.fan) ? sample.fan : '--'}`;
+  const eventText = eventLabel ? `事件 ${eventLabel}` : '';
+  tooltip.textContent = [timeText, btText, etText, rorText, `${powerText} ${fanText}`, eventText].filter(Boolean).join('｜');
+  const tooltipWidth = tooltip.offsetWidth || 160;
+  const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+  const desiredLeft = rect.left + (xCursor * (rect.width / width)) - tooltipWidth / 2;
+  const clampedLeft = clamp(desiredLeft, 8, viewportWidth - tooltipWidth - 8);
+  const top = rect.top + window.scrollY + 8;
+  tooltip.style.left = `${clampedLeft}px`;
+  tooltip.style.top = `${top}px`;
+  tooltip.style.opacity = '1';
+}
+
+function getPlotMaps(state) {
+  if (!state) return null;
+  const { margin, plotWidth, plotHeight, totalDuration, tempMax } = state;
+  if (!margin || !plotWidth || !plotHeight || !totalDuration) return null;
+  const mapX = (t) => margin.left + (Math.max(0, t) / totalDuration) * plotWidth;
+  const mapTempY = (temp) => margin.top + plotHeight - (clamp(temp, 0, tempMax) / tempMax) * plotHeight;
+  const mapRorY = (rorVal) => mapTempY(rorVal * 10);
+  return { mapX, mapTempY, mapRorY };
+}
+
+function restoreBaseImage(ctx, baseCanvas) {
+  if (!ctx || !baseCanvas) return;
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, chartCanvas.width, chartCanvas.height);
+  ctx.drawImage(baseCanvas, 0, 0);
+  ctx.restore();
+}
+
+function drawCursorPoint(ctx, x, y, color) {
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+  ctx.save();
+  ctx.fillStyle = color;
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(x, y, 4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
+function getTooltip() {
+  if (tooltipEl) return tooltipEl;
+  tooltipEl = document.createElement('div');
+  tooltipEl.id = 'cursor-tooltip';
+  tooltipEl.style.position = 'absolute';
+  tooltipEl.style.padding = '6px 10px';
+  tooltipEl.style.background = 'rgba(255,255,255,0.95)';
+  tooltipEl.style.border = '1px solid rgba(15,23,42,0.15)';
+  tooltipEl.style.borderRadius = '8px';
+  tooltipEl.style.color = '#0f172a';
+  tooltipEl.style.font = '13px "Inter", system-ui, sans-serif';
+  tooltipEl.style.pointerEvents = 'none';
+  tooltipEl.style.opacity = '0';
+  tooltipEl.style.transition = 'opacity 0.1s ease';
+  document.body.appendChild(tooltipEl);
+  return tooltipEl;
+}
+
+function findNearestSampleIndex(samples, target) {
+  let lo = 0;
+  let hi = samples.length - 1;
+  while (lo <= hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    const tMid = samples[mid].t;
+    if (tMid === target) return mid;
+    if (tMid < target) lo = mid + 1;
+    else hi = mid - 1;
+  }
+  const candidates = [];
+  if (lo < samples.length) candidates.push(lo);
+  if (lo - 1 >= 0) candidates.push(lo - 1);
+  if (!candidates.length) return -1;
+  let best = candidates[0];
+  let bestDiff = Math.abs(samples[best].t - target);
+  for (let i = 1; i < candidates.length; i++) {
+    const idx = candidates[i];
+    const diff = Math.abs(samples[idx].t - target);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      best = idx;
+    }
+  }
+  return best;
 }
