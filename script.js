@@ -10,6 +10,7 @@ const shareBtn = document.getElementById('share');
 let plotState = null;
 let isDragging = false;
 let tooltipEl = null;
+let interactionsBound = false;
 
 let currentBlobUrl = null;
 let currentChartTitle = 'roast-curve';
@@ -98,6 +99,11 @@ function setPreview(url) {
   }
   currentBlobUrl = url;
   previewImg.src = url;
+  if (previewImg) previewImg.style.pointerEvents = 'none';
+  if (chartCanvas) {
+    chartCanvas.style.pointerEvents = 'auto';
+    chartCanvas.style.touchAction = 'none';
+  }
 }
 
 function updateStatus(message) {
@@ -1163,6 +1169,8 @@ function drawFooterText(ctx, width, height, margin, phases) {
 }
 
 function setupPointerInteractions() {
+  if (interactionsBound) return;
+  interactionsBound = true;
   if (!chartCanvas) return;
   chartCanvas.addEventListener('pointerdown', (evt) => {
     if (!plotState) return;
