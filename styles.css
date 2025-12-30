@@ -1,7 +1,7 @@
 :root {
   font-family: "Inter", system-ui, -apple-system, sans-serif;
   line-height: 1.6;
-  background: #0b1021;
+  background: #0f172a;
   color: #e2e8f0;
 }
 
@@ -109,7 +109,10 @@ header p {
 }
 
 #curve {
-  display: none;
+  width: 100%;
+  display: block;
+  aspect-ratio: 16 / 9;
+  touch-action: none;
 }
 
 #png-preview {
@@ -119,7 +122,7 @@ header p {
   padding: 8px;
   max-width: 100%;
   height: auto;
-  display: block;
+  display: none;
   box-sizing: border-box;
 }
 
