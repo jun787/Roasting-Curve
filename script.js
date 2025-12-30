@@ -50,6 +50,7 @@ fileInput.addEventListener('change', async (event) => {
 
     const { blob, url } = await renderPng(prepared, currentChartTitle);
     lastPngBlob = blob;
+    setupPointerInteractions();
     setPreview(url);
     downloadBtn.disabled = false;
     shareBtn.disabled = false;
