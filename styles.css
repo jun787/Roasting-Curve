@@ -110,11 +110,11 @@ header p {
 }
 
 #curve {
-  width: 100%;
+  width: 100% !important;
   display: block;
   max-width: 100%;
-  height: auto;
-  aspect-ratio: 16 / 9;
+  height: auto !important;
+  aspect-ratio: 16 / 9 !important;
   touch-action: none;
 }
 
