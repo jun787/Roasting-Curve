@@ -11,6 +11,7 @@ let plotState = null;
 let isDragging = false;
 let tooltipEl = null;
 let interactionsBound = false;
+let activePointerId = null;
 
 let currentBlobUrl = null;
 let currentChartTitle = 'roast-curve';
@@ -1176,6 +1177,7 @@ function setupPointerInteractions() {
   chartCanvas.addEventListener('pointerdown', (evt) => {
     if (!plotState) return;
     isDragging = true;
+    activePointerId = evt.pointerId;
     chartCanvas.setPointerCapture(evt.pointerId);
     handlePointerMove(evt);
   });
@@ -1189,6 +1191,7 @@ function setupPointerInteractions() {
     if (chartCanvas.hasPointerCapture(evt.pointerId)) {
       chartCanvas.releasePointerCapture(evt.pointerId);
     }
+    activePointerId = null;
   });
   chartCanvas.addEventListener('pointercancel', (evt) => {
     if (!isDragging) return;
@@ -1196,6 +1199,16 @@ function setupPointerInteractions() {
     if (chartCanvas.hasPointerCapture(evt.pointerId)) {
       chartCanvas.releasePointerCapture(evt.pointerId);
     }
+    activePointerId = null;
+  });
+  document.addEventListener('pointerdown', (evt) => {
+    if (!chartCanvas) return;
+    if (chartCanvas.contains(evt.target)) return;
+    if (tooltipEl && tooltipEl.contains(evt.target)) return;
+    clearInteraction();
+  });
+  document.addEventListener('keydown', (evt) => {
+    if (evt.key === 'Escape') clearInteraction();
   });
 }
 
@@ -1336,4 +1349,20 @@ function findNearestSampleIndex(samples, target) {
     }
   }
   return best;
+}
+
+function clearInteraction() {
+  isDragging = false;
+  if (activePointerId !== null && chartCanvas?.hasPointerCapture?.(activePointerId)) {
+    chartCanvas.releasePointerCapture(activePointerId);
+  }
+  activePointerId = null;
+  if (tooltipEl) {
+    tooltipEl.style.opacity = '0';
+    tooltipEl.textContent = '';
+  }
+  if (plotState?.baseCanvas) {
+    const ctx = chartCanvas.getContext('2d');
+    restoreBaseImage(ctx, plotState.baseCanvas);
+  }
 }
