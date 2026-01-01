@@ -1,7 +1,7 @@
 :root {
   font-family: "Inter", system-ui, -apple-system, sans-serif;
   line-height: 1.6;
-  background: #0b1021;
+  background: #0f172a;
   color: #e2e8f0;
 }
 
@@ -33,6 +33,7 @@ header p {
   padding: 18px 18px 22px;
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
   margin-bottom: 18px;
+  min-width: 0;
 }
 
 .uploader {
@@ -109,7 +110,12 @@ header p {
 }
 
 #curve {
-  display: none;
+  width: 100%;
+  display: block;
+  max-width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  touch-action: none;
 }
 
 #png-preview {
@@ -119,7 +125,7 @@ header p {
   padding: 8px;
   max-width: 100%;
   height: auto;
-  display: block;
+  display: none;
   box-sizing: border-box;
 }
 
