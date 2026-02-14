@@ -506,8 +506,24 @@ function prepareSeries({ headers, rows, mapping: initialMapping, headerRowIndex,
 }
 
 function computeRoR(samples) {
+  const btForRor = samples.map((s) => s.bt);
+  const firstEventLabel = `${samples[0]?.event ?? ''}`.trim().toUpperCase();
+  const firstDt = (samples[1]?.t ?? NaN) - (samples[0]?.t ?? NaN);
+  // LOAD 入豆時常見記錄延遲，若第 0 秒比第 1 秒低，視為殘留值；僅修正 RoR 計算序列，不影響原始 BT 顯示。
+  const isLoadLike = /LOAD|CHARGE|入豆/.test(firstEventLabel);
+  if (
+    samples.length >= 2
+    && isLoadLike
+    && Number.isFinite(firstDt)
+    && firstDt <= 2
+    && Number.isFinite(btForRor[0])
+    && Number.isFinite(btForRor[1])
+    && btForRor[1] > btForRor[0]
+  ) {
+    btForRor[0] = btForRor[1];
+  }
+
   const ror = new Array(samples.length).fill(null);
-  let firstPositiveSeen = false;
   let start = 0;
   let sumT = 0;
   let sumBt = 0;
@@ -515,7 +531,8 @@ function computeRoR(samples) {
   let sumTBt = 0;
 
   for (let i = 0; i < samples.length; i++) {
-    const { t, bt } = samples[i];
+    const { t } = samples[i];
+    const bt = btForRor[i];
     sumT += t;
     sumBt += bt;
     sumTT += t * t;
@@ -523,7 +540,7 @@ function computeRoR(samples) {
 
     while (start <= i && samples[start].t < t - 30) {
       const oldT = samples[start].t;
-      const oldBt = samples[start].bt;
+      const oldBt = btForRor[start];
       sumT -= oldT;
       sumBt -= oldBt;
       sumTT -= oldT * oldT;
@@ -542,8 +559,33 @@ function computeRoR(samples) {
 
     const slopePerSec = numerator / denominator;
     const slopePerMin = slopePerSec * 60;
-    if (slopePerMin > 0) firstPositiveSeen = true;
-    ror[i] = firstPositiveSeen ? slopePerMin : null;
+    ror[i] = slopePerMin;
+  }
+
+  const tpSearchLimit = samples.findIndex((s) => Number.isFinite(s.t) && s.t > 180);
+  const tpSearchEnd = tpSearchLimit === -1 ? samples.length : tpSearchLimit;
+  let tpIdx = -1;
+  let minBt = Infinity;
+  for (let i = 0; i < tpSearchEnd; i++) {
+    const bt = samples[i]?.bt;
+    if (!Number.isFinite(bt)) continue;
+    if (bt < minBt) {
+      minBt = bt;
+      tpIdx = i;
+    }
+  }
+
+  // RoR 顯示起點必須以 TP（BT 最低點）為準，避免開頭噪訊/延遲造成「先轉正」誤判。
+  if (tpIdx >= 0) {
+    for (let i = 0; i <= tpIdx; i++) {
+      ror[i] = null;
+    }
+  }
+
+  for (let i = tpIdx + 1; i < ror.length; i++) {
+    if (Number.isFinite(ror[i]) && ror[i] < 0) {
+      ror[i] = null;
+    }
   }
 
   return ror;
