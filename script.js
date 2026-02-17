@@ -11,7 +11,6 @@ const shareBtn = document.getElementById('share');
 let plotState = null;
 let isDragging = false;
 let tooltipEl = null;
-let tooltipAnchor = null;
 let interactionsBound = false;
 let activePointerId = null;
 
@@ -1264,12 +1263,6 @@ function setupPointerInteractions() {
   document.addEventListener('keydown', (evt) => {
     if (evt.key === 'Escape') clearInteraction();
   });
-  const repositionTooltip = () => {
-    if (!tooltipEl || tooltipEl.style.opacity !== '1' || !tooltipAnchor) return;
-    positionTooltip(tooltipAnchor.left, tooltipAnchor.top);
-  };
-  window.addEventListener('resize', repositionTooltip);
-  window.addEventListener('orientationchange', repositionTooltip);
 }
 
 function handlePointerMove(evt) {
@@ -1379,12 +1372,20 @@ function drawCursorPoint(ctx, x, y, color) {
 
 function getTooltip() {
   if (tooltipEl) return tooltipEl;
+  const containerStyle = window.getComputedStyle(chartContainer);
+  if (containerStyle.position === 'static') {
+    chartContainer.style.position = 'relative';
+  }
+  if (parseFloat(containerStyle.paddingTop) < 40) {
+    chartContainer.style.paddingTop = '40px';
+  }
   tooltipEl = document.createElement('div');
   tooltipEl.id = 'cursor-tooltip';
   tooltipEl.style.position = 'absolute';
   tooltipEl.style.top = '0';
   tooltipEl.style.left = '0';
   tooltipEl.style.right = '0';
+  tooltipEl.style.width = '100%';
   tooltipEl.style.zIndex = '3';
   tooltipEl.style.padding = '6px 10px';
   tooltipEl.style.boxSizing = 'border-box';
@@ -1447,7 +1448,6 @@ function clearInteraction() {
     tooltipEl.style.opacity = '0';
     tooltipEl.innerHTML = '';
   }
-  tooltipAnchor = null;
   if (plotState?.baseCanvas) {
     const ctx = chartCanvas.getContext('2d');
     restoreBaseImage(ctx, plotState.baseCanvas);
