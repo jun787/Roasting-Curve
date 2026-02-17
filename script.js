@@ -11,9 +11,10 @@ const shareBtn = document.getElementById('share');
 let plotState = null;
 let isDragging = false;
 let tooltipEl = null;
-let tooltipAnchor = null;
 let interactionsBound = false;
 let activePointerId = null;
+let visualViewportBound = false;
+let cleanupVisualViewportScale = null;
 
 let currentBlobUrl = null;
 let currentChartTitle = 'roast-curve';
@@ -22,6 +23,7 @@ let lastFileBaseName = 'roast-curve';
 
 ensureEnvironment();
 setupPointerInteractions();
+setupVisualViewportScale();
 if (document.body) {
   document.body.style.backgroundColor = '#0f172a';
 }
@@ -1264,12 +1266,26 @@ function setupPointerInteractions() {
   document.addEventListener('keydown', (evt) => {
     if (evt.key === 'Escape') clearInteraction();
   });
-  const repositionTooltip = () => {
-    if (!tooltipEl || tooltipEl.style.opacity !== '1' || !tooltipAnchor) return;
-    positionTooltip(tooltipAnchor.left, tooltipAnchor.top);
+}
+
+
+function setupVisualViewportScale() {
+  if (visualViewportBound) return;
+  visualViewportBound = true;
+  const updateScale = () => {
+    const s = window.visualViewport?.scale || 1;
+    const inv = s > 0 ? 1 / s : 1;
+    document.documentElement.style.setProperty('--vv-scale', String(inv));
   };
-  window.addEventListener('resize', repositionTooltip);
-  window.addEventListener('orientationchange', repositionTooltip);
+  updateScale();
+  if (!window.visualViewport) return;
+  window.visualViewport.addEventListener('resize', updateScale);
+  window.visualViewport.addEventListener('scroll', updateScale);
+  cleanupVisualViewportScale = () => {
+    window.visualViewport.removeEventListener('resize', updateScale);
+    window.visualViewport.removeEventListener('scroll', updateScale);
+  };
+  window.addEventListener('pagehide', cleanupVisualViewportScale, { once: true });
 }
 
 function handlePointerMove(evt) {
@@ -1324,6 +1340,7 @@ function handlePointerMove(evt) {
   const fanText = `風門 ${Number.isFinite(sample.fan) ? sample.fan : '--'}`;
   const eventText = eventLabel ? `事件 ${eventLabel}` : '';
   setTooltipContent(tooltip, [timeText, btText, etText, rorText, `${powerText} ${fanText}`, eventText].filter(Boolean));
+  positionTooltipCentered();
   tooltip.style.opacity = '1';
 }
 
@@ -1343,6 +1360,17 @@ function setTooltipContent(tooltip, items) {
     chunk.style.flex = '0 0 auto';
     tooltip.appendChild(chunk);
   });
+}
+
+
+function positionTooltipCentered() {
+  if (!tooltipEl || !chartContainer) return;
+  const containerWidth = chartContainer.getBoundingClientRect().width;
+  const tooltipWidth = tooltipEl.offsetWidth;
+  const xCenter = (containerWidth - tooltipWidth) / 2;
+  const maxX = Math.max(8, containerWidth - tooltipWidth - 8);
+  const x = Math.max(8, Math.min(xCenter, maxX));
+  tooltipEl.style.left = `${x}px`;
 }
 
 function getPlotMaps(state) {
@@ -1379,12 +1407,23 @@ function drawCursorPoint(ctx, x, y, color) {
 
 function getTooltip() {
   if (tooltipEl) return tooltipEl;
+  const containerStyle = window.getComputedStyle(chartContainer);
+  if (containerStyle.position === 'static') {
+    chartContainer.style.position = 'relative';
+  }
+  if (parseFloat(containerStyle.paddingTop) < 40) {
+    chartContainer.style.paddingTop = '40px';
+  }
   tooltipEl = document.createElement('div');
   tooltipEl.id = 'cursor-tooltip';
   tooltipEl.style.position = 'absolute';
   tooltipEl.style.top = '0';
   tooltipEl.style.left = '0';
-  tooltipEl.style.right = '0';
+  tooltipEl.style.right = 'auto';
+  tooltipEl.style.width = 'max-content';
+  tooltipEl.style.transform = 'scale(var(--vv-scale, 1))';
+  tooltipEl.style.transformOrigin = 'top left';
+  tooltipEl.style.willChange = 'transform';
   tooltipEl.style.zIndex = '3';
   tooltipEl.style.padding = '6px 10px';
   tooltipEl.style.boxSizing = 'border-box';
@@ -1393,9 +1432,10 @@ function getTooltip() {
   tooltipEl.style.borderRadius = '8px 8px 0 0';
   tooltipEl.style.color = '#0f172a';
   tooltipEl.style.fontFamily = '"Inter", system-ui, sans-serif';
-  tooltipEl.style.fontSize = 'clamp(10px, 2.6vw, 14px)';
-  tooltipEl.style.lineHeight = '1.45';
-  tooltipEl.style.maxWidth = '100%';
+  tooltipEl.style.fontSize = 'clamp(12px, 3.5vw, 18px)';
+  tooltipEl.style.lineHeight = '1.35';
+  tooltipEl.style.maxWidth = 'calc(100% / var(--vv-scale, 1) - 16px)';
+  tooltipEl.style.maxHeight = '30vh';
   tooltipEl.style.overflow = 'auto';
   tooltipEl.style.display = 'flex';
   tooltipEl.style.flexWrap = 'wrap';
@@ -1447,7 +1487,6 @@ function clearInteraction() {
     tooltipEl.style.opacity = '0';
     tooltipEl.innerHTML = '';
   }
-  tooltipAnchor = null;
   if (plotState?.baseCanvas) {
     const ctx = chartCanvas.getContext('2d');
     restoreBaseImage(ctx, plotState.baseCanvas);
