@@ -112,6 +112,7 @@ header p {
 .curve-wrap {
   position: relative;
   width: 100%;
+  padding-top: 40px;
 }
 
 #curve {

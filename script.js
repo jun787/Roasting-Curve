@@ -1324,10 +1324,6 @@ function handlePointerMove(evt) {
   const fanText = `風門 ${Number.isFinite(sample.fan) ? sample.fan : '--'}`;
   const eventText = eventLabel ? `事件 ${eventLabel}` : '';
   setTooltipContent(tooltip, [timeText, btText, etText, rorText, `${powerText} ${fanText}`, eventText].filter(Boolean));
-  const desiredLeft = (xCursor * (rect.width / width)) - (tooltip.offsetWidth || 160) / 2;
-  const desiredTop = 8;
-  tooltipAnchor = { left: desiredLeft, top: desiredTop };
-  positionTooltip(desiredLeft, desiredTop);
   tooltip.style.opacity = '1';
 }
 
@@ -1347,19 +1343,6 @@ function setTooltipContent(tooltip, items) {
     chunk.style.flex = '0 0 auto';
     tooltip.appendChild(chunk);
   });
-}
-
-function positionTooltip(desiredLeft, desiredTop) {
-  if (!tooltipEl || !chartContainer) return;
-  const tooltipWidth = tooltipEl.offsetWidth || 160;
-  const tooltipHeight = tooltipEl.offsetHeight || 44;
-  const containerRect = chartContainer.getBoundingClientRect();
-  const maxLeft = Math.max(8, containerRect.width - tooltipWidth - 8);
-  const maxTop = Math.max(8, containerRect.height - tooltipHeight - 8);
-  const clampedLeft = clamp(desiredLeft, 8, maxLeft);
-  const clampedTop = clamp(desiredTop, 8, maxTop);
-  tooltipEl.style.left = `${clampedLeft}px`;
-  tooltipEl.style.top = `${clampedTop}px`;
 }
 
 function getPlotMaps(state) {
@@ -1398,17 +1381,21 @@ function getTooltip() {
   if (tooltipEl) return tooltipEl;
   tooltipEl = document.createElement('div');
   tooltipEl.id = 'cursor-tooltip';
-  tooltipEl.style.position = 'fixed';
+  tooltipEl.style.position = 'absolute';
+  tooltipEl.style.top = '0';
+  tooltipEl.style.left = '0';
+  tooltipEl.style.right = '0';
+  tooltipEl.style.zIndex = '3';
   tooltipEl.style.padding = '6px 10px';
+  tooltipEl.style.boxSizing = 'border-box';
   tooltipEl.style.background = 'rgba(255,255,255,0.95)';
   tooltipEl.style.border = '1px solid rgba(15,23,42,0.15)';
-  tooltipEl.style.borderRadius = '8px';
+  tooltipEl.style.borderRadius = '8px 8px 0 0';
   tooltipEl.style.color = '#0f172a';
   tooltipEl.style.fontFamily = '"Inter", system-ui, sans-serif';
   tooltipEl.style.fontSize = 'clamp(10px, 2.6vw, 14px)';
   tooltipEl.style.lineHeight = '1.45';
-  tooltipEl.style.maxWidth = 'calc(100% - 16px)';
-  tooltipEl.style.maxHeight = 'calc(100% - 16px)';
+  tooltipEl.style.maxWidth = '100%';
   tooltipEl.style.overflow = 'auto';
   tooltipEl.style.display = 'flex';
   tooltipEl.style.flexWrap = 'wrap';
