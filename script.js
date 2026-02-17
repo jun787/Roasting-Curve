@@ -2,6 +2,7 @@ const fileInput = document.getElementById('file-input');
 const statusEl = document.getElementById('status');
 const metaEl = document.getElementById('meta');
 const chartCanvas = document.getElementById('curve');
+const chartContainer = document.getElementById('curve-wrap');
 const previewImg = document.getElementById('png-preview');
 const phaseTextEl = document.getElementById('phase-text');
 const dropTextEl = document.getElementById('drop-text');
@@ -129,6 +130,7 @@ function ensureEnvironment() {
   if (!fileInput) missing.push('找不到 #file-input');
   if (!metaEl) missing.push('找不到 #meta');
   if (!chartCanvas) missing.push('找不到 #curve');
+  if (!chartContainer) missing.push('找不到 #curve-wrap');
   if (!previewImg) missing.push('找不到 #png-preview');
   if (!downloadBtn) missing.push('找不到 #download 按鈕');
   if (!shareBtn) missing.push('找不到 #share 按鈕');
@@ -623,14 +625,23 @@ function detectTP(samples) {
 }
 
 function extractEvents(samples) {
-  return samples
+  const deduped = new Map();
+  samples
     .map((s, idx) => {
       const label = s.event.toUpperCase();
       if (label.includes('YELLOW')) return { idx, t: s.t, bt: s.bt, label: 'YELLOW' };
       if (label.includes('1ST')) return { idx, t: s.t, bt: s.bt, label: '1st CRACK' };
       return null;
     })
-    .filter(Boolean);
+    .filter(Boolean)
+    .forEach((event) => {
+      const existing = deduped.get(event.label);
+      if (!existing || event.t >= existing.t) {
+        deduped.set(event.label, event);
+      }
+    });
+
+  return [...deduped.values()].sort((a, b) => a.t - b.t);
 }
 
 function buildPhases(samples, events) {
@@ -1305,15 +1316,26 @@ function handlePointerMove(evt) {
   const powerText = `火力 ${Number.isFinite(sample.power) ? sample.power : '--'}`;
   const fanText = `風門 ${Number.isFinite(sample.fan) ? sample.fan : '--'}`;
   const eventText = eventLabel ? `事件 ${eventLabel}` : '';
-  tooltip.textContent = [timeText, btText, etText, rorText, `${powerText} ${fanText}`, eventText].filter(Boolean).join('｜');
-  const tooltipWidth = tooltip.offsetWidth || 160;
-  const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
-  const desiredLeft = rect.left + (xCursor * (rect.width / width)) - tooltipWidth / 2;
-  const clampedLeft = clamp(desiredLeft, 8, viewportWidth - tooltipWidth - 8);
-  const top = rect.top + window.scrollY + 8;
-  tooltip.style.left = `${clampedLeft}px`;
-  tooltip.style.top = `${top}px`;
+  setTooltipContent(tooltip, [timeText, btText, etText, rorText, `${powerText} ${fanText}`, eventText].filter(Boolean));
   tooltip.style.opacity = '1';
+}
+
+function setTooltipContent(tooltip, items) {
+  tooltip.innerHTML = '';
+  items.forEach((item, idx) => {
+    if (idx > 0) {
+      const separator = document.createElement('span');
+      separator.textContent = '｜';
+      separator.style.opacity = '0.65';
+      separator.style.flex = '0 0 auto';
+      tooltip.appendChild(separator);
+    }
+    const chunk = document.createElement('span');
+    chunk.textContent = item;
+    chunk.style.whiteSpace = 'nowrap';
+    chunk.style.flex = '0 0 auto';
+    tooltip.appendChild(chunk);
+  });
 }
 
 function getPlotMaps(state) {
@@ -1353,16 +1375,31 @@ function getTooltip() {
   tooltipEl = document.createElement('div');
   tooltipEl.id = 'cursor-tooltip';
   tooltipEl.style.position = 'absolute';
+  tooltipEl.style.top = '0';
+  tooltipEl.style.left = '0';
+  tooltipEl.style.right = '0';
+  tooltipEl.style.zIndex = '3';
   tooltipEl.style.padding = '6px 10px';
+  tooltipEl.style.boxSizing = 'border-box';
   tooltipEl.style.background = 'rgba(255,255,255,0.95)';
   tooltipEl.style.border = '1px solid rgba(15,23,42,0.15)';
-  tooltipEl.style.borderRadius = '8px';
+  tooltipEl.style.borderRadius = '8px 8px 0 0';
   tooltipEl.style.color = '#0f172a';
-  tooltipEl.style.font = '13px "Inter", system-ui, sans-serif';
+  tooltipEl.style.fontFamily = '"Inter", system-ui, sans-serif';
+  tooltipEl.style.fontSize = 'clamp(10px, 2.6vw, 14px)';
+  tooltipEl.style.lineHeight = '1.45';
+  tooltipEl.style.maxWidth = '100%';
+  tooltipEl.style.overflow = 'auto';
+  tooltipEl.style.display = 'flex';
+  tooltipEl.style.flexWrap = 'wrap';
+  tooltipEl.style.gap = '0 6px';
+  tooltipEl.style.whiteSpace = 'normal';
+  tooltipEl.style.wordBreak = 'normal';
+  tooltipEl.style.overflowWrap = 'normal';
   tooltipEl.style.pointerEvents = 'none';
   tooltipEl.style.opacity = '0';
   tooltipEl.style.transition = 'opacity 0.1s ease';
-  document.body.appendChild(tooltipEl);
+  chartContainer.appendChild(tooltipEl);
   return tooltipEl;
 }
 
@@ -1401,7 +1438,7 @@ function clearInteraction() {
   activePointerId = null;
   if (tooltipEl) {
     tooltipEl.style.opacity = '0';
-    tooltipEl.textContent = '';
+    tooltipEl.innerHTML = '';
   }
   if (plotState?.baseCanvas) {
     const ctx = chartCanvas.getContext('2d');
