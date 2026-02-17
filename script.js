@@ -14,6 +14,7 @@ let tooltipEl = null;
 let interactionsBound = false;
 let activePointerId = null;
 let visualViewportBound = false;
+let cleanupVisualViewportScale = null;
 
 let currentBlobUrl = null;
 let currentChartTitle = 'roast-curve';
@@ -1273,12 +1274,18 @@ function setupVisualViewportScale() {
   visualViewportBound = true;
   const updateScale = () => {
     const s = window.visualViewport?.scale || 1;
-    document.documentElement.style.setProperty('--vv-scale', String(s));
+    const inv = s > 0 ? 1 / s : 1;
+    document.documentElement.style.setProperty('--vv-scale', String(inv));
   };
   updateScale();
   if (!window.visualViewport) return;
   window.visualViewport.addEventListener('resize', updateScale);
   window.visualViewport.addEventListener('scroll', updateScale);
+  cleanupVisualViewportScale = () => {
+    window.visualViewport.removeEventListener('resize', updateScale);
+    window.visualViewport.removeEventListener('scroll', updateScale);
+  };
+  window.addEventListener('pagehide', cleanupVisualViewportScale, { once: true });
 }
 
 function handlePointerMove(evt) {
@@ -1413,9 +1420,10 @@ function getTooltip() {
   tooltipEl.style.borderRadius = '8px 8px 0 0';
   tooltipEl.style.color = '#0f172a';
   tooltipEl.style.fontFamily = '"Inter", system-ui, sans-serif';
-  tooltipEl.style.fontSize = 'clamp(10px, 2.6vw, 14px)';
-  tooltipEl.style.lineHeight = '1.45';
+  tooltipEl.style.fontSize = 'clamp(12px, 3.5vw, 18px)';
+  tooltipEl.style.lineHeight = '1.35';
   tooltipEl.style.maxWidth = '100%';
+  tooltipEl.style.maxHeight = '30vh';
   tooltipEl.style.overflow = 'auto';
   tooltipEl.style.display = 'flex';
   tooltipEl.style.flexWrap = 'wrap';
