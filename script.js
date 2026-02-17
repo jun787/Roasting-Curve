@@ -2,6 +2,7 @@ const fileInput = document.getElementById('file-input');
 const statusEl = document.getElementById('status');
 const metaEl = document.getElementById('meta');
 const chartCanvas = document.getElementById('curve');
+const chartContainer = document.getElementById('curve-wrap');
 const previewImg = document.getElementById('png-preview');
 const phaseTextEl = document.getElementById('phase-text');
 const dropTextEl = document.getElementById('drop-text');
@@ -130,6 +131,7 @@ function ensureEnvironment() {
   if (!fileInput) missing.push('找不到 #file-input');
   if (!metaEl) missing.push('找不到 #meta');
   if (!chartCanvas) missing.push('找不到 #curve');
+  if (!chartContainer) missing.push('找不到 #curve-wrap');
   if (!previewImg) missing.push('找不到 #png-preview');
   if (!downloadBtn) missing.push('找不到 #download 按鈕');
   if (!shareBtn) missing.push('找不到 #share 按鈕');
@@ -1262,10 +1264,12 @@ function setupPointerInteractions() {
   document.addEventListener('keydown', (evt) => {
     if (evt.key === 'Escape') clearInteraction();
   });
-  window.addEventListener('resize', () => {
+  const repositionTooltip = () => {
     if (!tooltipEl || tooltipEl.style.opacity !== '1' || !tooltipAnchor) return;
     positionTooltip(tooltipAnchor.left, tooltipAnchor.top);
-  });
+  };
+  window.addEventListener('resize', repositionTooltip);
+  window.addEventListener('orientationchange', repositionTooltip);
 }
 
 function handlePointerMove(evt) {
@@ -1320,8 +1324,8 @@ function handlePointerMove(evt) {
   const fanText = `風門 ${Number.isFinite(sample.fan) ? sample.fan : '--'}`;
   const eventText = eventLabel ? `事件 ${eventLabel}` : '';
   setTooltipContent(tooltip, [timeText, btText, etText, rorText, `${powerText} ${fanText}`, eventText].filter(Boolean));
-  const desiredLeft = rect.left + (xCursor * (rect.width / width)) - (tooltip.offsetWidth || 160) / 2;
-  const desiredTop = rect.top + 8;
+  const desiredLeft = (xCursor * (rect.width / width)) - (tooltip.offsetWidth || 160) / 2;
+  const desiredTop = 8;
   tooltipAnchor = { left: desiredLeft, top: desiredTop };
   positionTooltip(desiredLeft, desiredTop);
   tooltip.style.opacity = '1';
@@ -1346,13 +1350,14 @@ function setTooltipContent(tooltip, items) {
 }
 
 function positionTooltip(desiredLeft, desiredTop) {
-  if (!tooltipEl) return;
+  if (!tooltipEl || !chartContainer) return;
   const tooltipWidth = tooltipEl.offsetWidth || 160;
   const tooltipHeight = tooltipEl.offsetHeight || 44;
-  const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
-  const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
-  const clampedLeft = clamp(desiredLeft, 8, Math.max(8, viewportWidth - tooltipWidth - 8));
-  const clampedTop = clamp(desiredTop, 8, Math.max(8, viewportHeight - tooltipHeight - 8));
+  const containerRect = chartContainer.getBoundingClientRect();
+  const maxLeft = Math.max(8, containerRect.width - tooltipWidth - 8);
+  const maxTop = Math.max(8, containerRect.height - tooltipHeight - 8);
+  const clampedLeft = clamp(desiredLeft, 8, maxLeft);
+  const clampedTop = clamp(desiredTop, 8, maxTop);
   tooltipEl.style.left = `${clampedLeft}px`;
   tooltipEl.style.top = `${clampedTop}px`;
 }
@@ -1402,8 +1407,8 @@ function getTooltip() {
   tooltipEl.style.fontFamily = '"Inter", system-ui, sans-serif';
   tooltipEl.style.fontSize = 'clamp(10px, 2.6vw, 14px)';
   tooltipEl.style.lineHeight = '1.45';
-  tooltipEl.style.maxWidth = 'calc(100vw - 24px)';
-  tooltipEl.style.maxHeight = 'calc(100vh - 24px)';
+  tooltipEl.style.maxWidth = 'calc(100% - 16px)';
+  tooltipEl.style.maxHeight = 'calc(100% - 16px)';
   tooltipEl.style.overflow = 'auto';
   tooltipEl.style.display = 'flex';
   tooltipEl.style.flexWrap = 'wrap';
@@ -1414,7 +1419,7 @@ function getTooltip() {
   tooltipEl.style.pointerEvents = 'none';
   tooltipEl.style.opacity = '0';
   tooltipEl.style.transition = 'opacity 0.1s ease';
-  document.body.appendChild(tooltipEl);
+  chartContainer.appendChild(tooltipEl);
   return tooltipEl;
 }
 
