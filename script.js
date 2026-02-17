@@ -1372,12 +1372,20 @@ function drawCursorPoint(ctx, x, y, color) {
 
 function getTooltip() {
   if (tooltipEl) return tooltipEl;
+  const containerStyle = window.getComputedStyle(chartContainer);
+  if (containerStyle.position === 'static') {
+    chartContainer.style.position = 'relative';
+  }
+  if (parseFloat(containerStyle.paddingTop) < 40) {
+    chartContainer.style.paddingTop = '40px';
+  }
   tooltipEl = document.createElement('div');
   tooltipEl.id = 'cursor-tooltip';
   tooltipEl.style.position = 'absolute';
   tooltipEl.style.top = '0';
   tooltipEl.style.left = '0';
   tooltipEl.style.right = '0';
+  tooltipEl.style.width = '100%';
   tooltipEl.style.zIndex = '3';
   tooltipEl.style.padding = '6px 10px';
   tooltipEl.style.boxSizing = 'border-box';
