@@ -1398,7 +1398,7 @@ function getTooltip() {
   if (tooltipEl) return tooltipEl;
   tooltipEl = document.createElement('div');
   tooltipEl.id = 'cursor-tooltip';
-  tooltipEl.style.position = 'absolute';
+  tooltipEl.style.position = 'fixed';
   tooltipEl.style.padding = '6px 10px';
   tooltipEl.style.background = 'rgba(255,255,255,0.95)';
   tooltipEl.style.border = '1px solid rgba(15,23,42,0.15)';
