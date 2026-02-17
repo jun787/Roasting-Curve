@@ -13,6 +13,7 @@ let isDragging = false;
 let tooltipEl = null;
 let interactionsBound = false;
 let activePointerId = null;
+let visualViewportBound = false;
 
 let currentBlobUrl = null;
 let currentChartTitle = 'roast-curve';
@@ -21,6 +22,7 @@ let lastFileBaseName = 'roast-curve';
 
 ensureEnvironment();
 setupPointerInteractions();
+setupVisualViewportScale();
 if (document.body) {
   document.body.style.backgroundColor = '#0f172a';
 }
@@ -1265,6 +1267,20 @@ function setupPointerInteractions() {
   });
 }
 
+
+function setupVisualViewportScale() {
+  if (visualViewportBound) return;
+  visualViewportBound = true;
+  const updateScale = () => {
+    const s = window.visualViewport?.scale || 1;
+    document.documentElement.style.setProperty('--vv-scale', String(s));
+  };
+  updateScale();
+  if (!window.visualViewport) return;
+  window.visualViewport.addEventListener('resize', updateScale);
+  window.visualViewport.addEventListener('scroll', updateScale);
+}
+
 function handlePointerMove(evt) {
   if (!plotState) return;
   const { margin, plotWidth, plotHeight, totalDuration, samples, ror, tempMax, dpr, baseCanvas, width, height } = plotState;
@@ -1385,7 +1401,10 @@ function getTooltip() {
   tooltipEl.style.top = '0';
   tooltipEl.style.left = '0';
   tooltipEl.style.right = '0';
-  tooltipEl.style.width = '100%';
+  tooltipEl.style.width = 'calc(100% / var(--vv-scale, 1))';
+  tooltipEl.style.transform = 'scale(var(--vv-scale, 1))';
+  tooltipEl.style.transformOrigin = 'top left';
+  tooltipEl.style.willChange = 'transform';
   tooltipEl.style.zIndex = '3';
   tooltipEl.style.padding = '6px 10px';
   tooltipEl.style.boxSizing = 'border-box';
