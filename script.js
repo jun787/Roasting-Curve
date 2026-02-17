@@ -1340,6 +1340,7 @@ function handlePointerMove(evt) {
   const fanText = `風門 ${Number.isFinite(sample.fan) ? sample.fan : '--'}`;
   const eventText = eventLabel ? `事件 ${eventLabel}` : '';
   setTooltipContent(tooltip, [timeText, btText, etText, rorText, `${powerText} ${fanText}`, eventText].filter(Boolean));
+  positionTooltipCentered();
   tooltip.style.opacity = '1';
 }
 
@@ -1359,6 +1360,17 @@ function setTooltipContent(tooltip, items) {
     chunk.style.flex = '0 0 auto';
     tooltip.appendChild(chunk);
   });
+}
+
+
+function positionTooltipCentered() {
+  if (!tooltipEl || !chartContainer) return;
+  const containerWidth = chartContainer.getBoundingClientRect().width;
+  const tooltipWidth = tooltipEl.offsetWidth;
+  const xCenter = (containerWidth - tooltipWidth) / 2;
+  const maxX = Math.max(8, containerWidth - tooltipWidth - 8);
+  const x = Math.max(8, Math.min(xCenter, maxX));
+  tooltipEl.style.left = `${x}px`;
 }
 
 function getPlotMaps(state) {
@@ -1407,8 +1419,8 @@ function getTooltip() {
   tooltipEl.style.position = 'absolute';
   tooltipEl.style.top = '0';
   tooltipEl.style.left = '0';
-  tooltipEl.style.right = '0';
-  tooltipEl.style.width = 'calc(100% / var(--vv-scale, 1))';
+  tooltipEl.style.right = 'auto';
+  tooltipEl.style.width = 'max-content';
   tooltipEl.style.transform = 'scale(var(--vv-scale, 1))';
   tooltipEl.style.transformOrigin = 'top left';
   tooltipEl.style.willChange = 'transform';
@@ -1422,7 +1434,7 @@ function getTooltip() {
   tooltipEl.style.fontFamily = '"Inter", system-ui, sans-serif';
   tooltipEl.style.fontSize = 'clamp(12px, 3.5vw, 18px)';
   tooltipEl.style.lineHeight = '1.35';
-  tooltipEl.style.maxWidth = '100%';
+  tooltipEl.style.maxWidth = 'calc(100% / var(--vv-scale, 1) - 16px)';
   tooltipEl.style.maxHeight = '30vh';
   tooltipEl.style.overflow = 'auto';
   tooltipEl.style.display = 'flex';
