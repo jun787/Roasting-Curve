@@ -11,7 +11,6 @@ const shareBtn = document.getElementById('share');
 let plotState = null;
 let isDragging = false;
 let tooltipEl = null;
-let tooltipAnchor = null;
 let interactionsBound = false;
 let activePointerId = null;
 
@@ -1264,12 +1263,6 @@ function setupPointerInteractions() {
   document.addEventListener('keydown', (evt) => {
     if (evt.key === 'Escape') clearInteraction();
   });
-  const repositionTooltip = () => {
-    if (!tooltipEl || tooltipEl.style.opacity !== '1' || !tooltipAnchor) return;
-    positionTooltip(tooltipAnchor.left, tooltipAnchor.top);
-  };
-  window.addEventListener('resize', repositionTooltip);
-  window.addEventListener('orientationchange', repositionTooltip);
 }
 
 function handlePointerMove(evt) {
@@ -1447,7 +1440,6 @@ function clearInteraction() {
     tooltipEl.style.opacity = '0';
     tooltipEl.innerHTML = '';
   }
-  tooltipAnchor = null;
   if (plotState?.baseCanvas) {
     const ctx = chartCanvas.getContext('2d');
     restoreBaseImage(ctx, plotState.baseCanvas);
