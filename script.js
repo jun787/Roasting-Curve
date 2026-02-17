@@ -11,9 +11,9 @@ const shareBtn = document.getElementById('share');
 let plotState = null;
 let isDragging = false;
 let tooltipEl = null;
-let tooltipAnchor = null;
 let interactionsBound = false;
 let activePointerId = null;
+let visualViewportBound = false;
 
 let currentBlobUrl = null;
 let currentChartTitle = 'roast-curve';
@@ -22,6 +22,7 @@ let lastFileBaseName = 'roast-curve';
 
 ensureEnvironment();
 setupPointerInteractions();
+setupVisualViewportScale();
 if (document.body) {
   document.body.style.backgroundColor = '#0f172a';
 }
@@ -1264,12 +1265,20 @@ function setupPointerInteractions() {
   document.addEventListener('keydown', (evt) => {
     if (evt.key === 'Escape') clearInteraction();
   });
-  const repositionTooltip = () => {
-    if (!tooltipEl || tooltipEl.style.opacity !== '1' || !tooltipAnchor) return;
-    positionTooltip(tooltipAnchor.left, tooltipAnchor.top);
+}
+
+
+function setupVisualViewportScale() {
+  if (visualViewportBound) return;
+  visualViewportBound = true;
+  const updateScale = () => {
+    const s = window.visualViewport?.scale || 1;
+    document.documentElement.style.setProperty('--vv-scale', String(s));
   };
-  window.addEventListener('resize', repositionTooltip);
-  window.addEventListener('orientationchange', repositionTooltip);
+  updateScale();
+  if (!window.visualViewport) return;
+  window.visualViewport.addEventListener('resize', updateScale);
+  window.visualViewport.addEventListener('scroll', updateScale);
 }
 
 function handlePointerMove(evt) {
@@ -1379,12 +1388,23 @@ function drawCursorPoint(ctx, x, y, color) {
 
 function getTooltip() {
   if (tooltipEl) return tooltipEl;
+  const containerStyle = window.getComputedStyle(chartContainer);
+  if (containerStyle.position === 'static') {
+    chartContainer.style.position = 'relative';
+  }
+  if (parseFloat(containerStyle.paddingTop) < 40) {
+    chartContainer.style.paddingTop = '40px';
+  }
   tooltipEl = document.createElement('div');
   tooltipEl.id = 'cursor-tooltip';
   tooltipEl.style.position = 'absolute';
   tooltipEl.style.top = '0';
   tooltipEl.style.left = '0';
   tooltipEl.style.right = '0';
+  tooltipEl.style.width = 'calc(100% / var(--vv-scale, 1))';
+  tooltipEl.style.transform = 'scale(var(--vv-scale, 1))';
+  tooltipEl.style.transformOrigin = 'top left';
+  tooltipEl.style.willChange = 'transform';
   tooltipEl.style.zIndex = '3';
   tooltipEl.style.padding = '6px 10px';
   tooltipEl.style.boxSizing = 'border-box';
@@ -1447,7 +1467,6 @@ function clearInteraction() {
     tooltipEl.style.opacity = '0';
     tooltipEl.innerHTML = '';
   }
-  tooltipAnchor = null;
   if (plotState?.baseCanvas) {
     const ctx = chartCanvas.getContext('2d');
     restoreBaseImage(ctx, plotState.baseCanvas);
