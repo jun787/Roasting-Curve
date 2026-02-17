@@ -109,6 +109,11 @@ header p {
   font-size: 0.95rem;
 }
 
+.curve-wrap {
+  position: relative;
+  width: 100%;
+}
+
 #curve {
   width: 100% !important;
   display: block;
